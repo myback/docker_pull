@@ -24,6 +24,7 @@ from dateutil.parser import parse
 # TODO: add function like a digest.Digister in moby/moby
 
 JSON_SEPARATOR = (',', ':')
+DOCKER_REGISTRY_HOST = 'registry-1.docker.io'
 
 
 def chain_ids(ids: list) -> list:
@@ -242,8 +243,8 @@ class TarExporter:
         self.tarobject.close()
 
         if self._remove_src_dir and exc_type is None:
-            for p in self._added_paths_list:
-                shutil.rmtree(p)
+            for _p in self._added_paths_list:
+                shutil.rmtree(_p)
 
 
 class ImageFetcher:
@@ -361,7 +362,7 @@ class ImageFetcher:
 
     @staticmethod
     def parser(image: str) -> tuple:
-        registry = 'registry-1.docker.io'
+        registry = DOCKER_REGISTRY_HOST
 
         image_parts = image.split('/')
         if len(image_parts) == 1:
@@ -391,11 +392,14 @@ class ImageFetcher:
         if os.path.exists(output_file):
             if sha256sum(output_file) != diff_id[7:]:
                 self._session.headers['Range'] = 'bytes={}-'.format(os.path.getsize(gziped_file))
+                open_file_mode = 'ab'
                 logging.debug(f'File {output_file} is exist, resume download')
             else:
                 print("\r{}: Pull complete {}".format(layer_id_short, " " * 100), flush=True)
                 logging.debug(f'File {output_file} is exist, download next blob')
                 return
+        else:
+            open_file_mode = 'wb'
 
         r = self.get_blob(url, layer_digest, stream=True)
         logging.debug(f'Blob headers: {layer_digest}: {r.headers}')
@@ -403,7 +407,7 @@ class ImageFetcher:
         content_length = int(r.headers.get('Content-Length', 0))
 
         if r.status_code != 416:
-            with open(gziped_file, "wb") as file:
+            with open(gziped_file, open_file_mode) as file:
                 done = 0
                 chunk_size = 8192
                 for chunk in r.iter_content(chunk_size=chunk_size):
@@ -451,14 +455,15 @@ class ImageFetcher:
             if manifest['platform']['architecture'] == arch:
                 tag_digest = manifest['digest']
                 image_os = manifest['platform']['os']
+                break
 
         image_manifest_res = self.get_manifest(url, tag_digest or tag)
-        logging.debug(f'Image manifest headers: {tag_digest or tag}: {manifests_list.headers}')
+        logging.debug(f'Image manifest headers: {tag_digest or tag}: {image_manifest_res.headers}')
         image_manifest = image_manifest_res.json()
 
         image_id = image_manifest['config']['digest']
         image_name = '{}_{}'.format(ns.replace('/', '_'), tag.replace(':', '_'))
-        image_repo = ns.replace('library/', '') if ns.startswith('library/') else ns
+        image_repo = ns.replace('library/', '') if ns.startswith('library/') and reg == DOCKER_REGISTRY_HOST else ns
         tmp_dir = f'{image_name}.tmp'
         config_filename = f'{image_id[7:]}.json'
 
@@ -469,7 +474,7 @@ class ImageFetcher:
         saver = FileExporter(tmp_dir)
 
         image_config = self.get_blob(url, image_id)
-        logging.debug(f'Image config headers: {image_id}: {manifests_list.headers}')
+        logging.debug(f'Image config headers: {image_id}: {image_config.headers}')
         with saver(config_filename) as f:
             f.write(image_config.content)
 
