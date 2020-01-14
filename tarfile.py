@@ -824,7 +824,7 @@ class TarInfo(object):
         """
         info = {
             "name": self.name,
-            "mode": self.mode,
+            "mode": self.mode,  # changed from: self.mode & 0o7777
             "uid": self.uid,
             "gid": self.gid,
             "size": self.size,
@@ -962,7 +962,7 @@ class TarInfo(object):
         """
         parts = [
             stn(info.get("name", ""), 100, encoding, errors),
-            itn(info.get("mode", 0), 8, format),
+            itn(info.get("mode", 0), 8, format),  # changed from: info.get("mode", 0) & 0o7777
             itn(info.get("uid", 0), 8, format),
             itn(info.get("gid", 0), 8, format),
             itn(info.get("size", 0), 12, format),

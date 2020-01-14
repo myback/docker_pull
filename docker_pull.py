@@ -20,6 +20,9 @@ from collections import OrderedDict
 from dateutil.tz import tzlocal
 from dateutil.parser import parse
 
+# TODO: v1_layers_ids, empty_manifest, empty_layer_json use like a struct in golang
+# TODO: add function like a digest.Digister in moby/moby
+
 JSON_SEPARATOR = (',', ':')
 
 
@@ -180,12 +183,23 @@ class FileExporter:
 class TarExporter:
     tarfile.RECORDSIZE = 512
 
-    def __init__(self, arc_path, created):
+    def __init__(self, arc_path, created, *, remove_src_dir: bool = True, owner: int = 0, group: int = 0,
+                 numeric_owner: bool = False):
         self.tarobject = tarfile.open(arc_path, mode='w')
         self.tarobject.format = tarfile.USTAR_FORMAT
         self._created = created
 
-    def add(self, path: str, arcpath: str = '', *, remove_src_dir: bool = True):
+        self._remove_src_dir = remove_src_dir
+        self._owner = owner
+        self._group = group
+        self._numeric_owner = numeric_owner
+
+        self._added_paths_list = []
+
+    def add(self, path: str, arcpath: str = ''):
+        if path not in self._added_paths_list:
+            self._added_paths_list.append(path)
+
         if not arcpath:
             arcpath = path
 
@@ -207,26 +221,29 @@ class TarExporter:
 
             tarinfo = self.tarobject.gettarinfo(full_path, arcname)
 
-            tarinfo.uid = 0
-            tarinfo.gid = 0
-            tarinfo.uname = ''
-            tarinfo.gname = ''
+            tarinfo.uid = self._owner
+            tarinfo.gid = self._group
+
+            if self._numeric_owner:
+                tarinfo.uname = ''
+                tarinfo.gname = ''
 
             if os.path.isdir(full_path):
                 self.tarobject.addfile(tarinfo)
-                self.add(full_path, path, remove_src_dir=remove_src_dir)
+                self.add(full_path, path)
             else:
                 with open(full_path, "rb") as f:
                     self.tarobject.addfile(tarinfo, f)
-
-        if remove_src_dir:
-            shutil.rmtree(path)
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.tarobject.close()
+
+        if self._remove_src_dir and exc_type is None:
+            for p in self._added_paths_list:
+                shutil.rmtree(p)
 
 
 class ImageFetcher:
@@ -306,6 +323,7 @@ class ImageFetcher:
             Layers=[]
         )]
 
+    # TODO: remove last_layer arg
     def empty_layer_json(self, *, image_os: str = 'linux', last_layer: bool = False):
         od = OrderedDict(created="1970-01-01T00:00:00Z")
 
@@ -506,8 +524,8 @@ class ImageFetcher:
             f.write(json.dumps({image_repo: {tag: v1_layer_id}}, separators=JSON_SEPARATOR))
             f.write('\n')
 
-        with TarExporter(f'{image_name}.tar', image_config['created']) as tar:
-            tar.add(tmp_dir, remove_src_dir=False)
+        with TarExporter(f'{image_name}.tar', image_config['created'], numeric_owner=True) as tar:
+            tar.add(tmp_dir)
 
 
 if __name__ == '__main__':
