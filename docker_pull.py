@@ -13,7 +13,6 @@ import shutil
 import struct
 import tarfile
 import typing
-import www_authenticate
 import urllib.parse as urlparse
 
 from collections import OrderedDict
@@ -26,6 +25,20 @@ from sys import platform as platform_system
 
 JSON_SEPARATOR = (',', ':')
 DOCKER_REGISTRY_HOST = 'registry-1.docker.io'
+
+
+def www_auth(hdr: str) -> dict:
+    ret = {}
+
+    auth_type, info = hdr.split(' ', 1)
+    auth_type = auth_type.lower()
+    ret[auth_type] = {}
+
+    for part in info.split(','):
+        k, v = part.split('=', 1)
+        ret[auth_type][k] = v.lower().replace('"', '')
+
+    return ret
 
 
 def chain_ids(ids: list) -> list:
@@ -182,41 +195,97 @@ class FileExporter:
         self.fd.close()
 
 
-class TarExporter:
+class TarExporter(tarfile.TarInfo):
+    def get_info(self):
+        """Return the TarInfo's attributes as a dictionary.
+        """
+        info = {
+            "name": self.name,
+            "mode": self.mode,
+            "uid": self.uid,
+            "gid": self.gid,
+            "size": self.size,
+            "mtime": self.mtime,
+            "chksum": self.chksum,
+            "type": self.type,
+            "linkname": self.linkname,
+            "uname": self.uname,
+            "gname": self.gname,
+            "devmajor": self.devmajor,
+            "devminor": self.devminor
+        }
+
+        if info["type"] == tarfile.DIRTYPE and not info["name"].endswith("/"):
+            info["name"] += "/"
+
+        return info
+
+    @staticmethod
+    def _create_header(info, format_, encoding, errors):
+        """Return a header block. info is a dictionary with file
+           information, format must be one of the *_FORMAT constants.
+        """
+        parts = [
+            tarfile.stn(info.get("name", ""), 100, encoding, errors),
+            tarfile.itn(info.get("mode", 0), 8, format_),
+            tarfile.itn(info.get("uid", 0), 8, format_),
+            tarfile.itn(info.get("gid", 0), 8, format_),
+            tarfile.itn(info.get("size", 0), 12, format_),
+            tarfile.itn(info.get("mtime", 0), 12, format_),
+            b" " * 8,  # checksum field
+            info.get("type", tarfile.REGTYPE),
+            tarfile.stn(info.get("linkname", ""), 100, encoding, errors),
+            info.get("magic", tarfile.POSIX_MAGIC),
+            tarfile.stn(info.get("uname", ""), 32, encoding, errors),
+            tarfile.stn(info.get("gname", ""), 32, encoding, errors),
+            tarfile.itn(info.get("devmajor", 0), 8, format_),
+            tarfile.itn(info.get("devminor", 0), 8, format_),
+            tarfile.stn(info.get("prefix", ""), 155, encoding, errors)
+        ]
+
+        buf = struct.pack("%ds" % tarfile.BLOCKSIZE, b"".join(parts))
+        chksum = tarfile.calc_chksums(buf[-tarfile.BLOCKSIZE:])[0]
+        buf = buf[:-364] + bytes("%06o\0" % chksum, "ascii") + buf[-357:]
+        return buf
+
+
+class TarFile(tarfile.TarFile):
+    tarinfo = TarExporter
+    format = tarfile.USTAR_FORMAT
     tarfile.RECORDSIZE = 512
 
-    def __init__(self, arc_path, created, *, remove_src_dir: bool = True, owner: int = 0, group: int = 0,
-                 numeric_owner: bool = False):
-        self.tarobject = tarfile.open(arc_path, mode='w')
-        self.tarobject.format = tarfile.USTAR_FORMAT
-        self._created = created
-
+    def __init__(self, name, mode, fileobj, *, created, remove_src_dir: bool = False, owner: int = 0, group: int = 0,
+                 numeric_owner: bool = True, **kwargs):
+        super(TarFile, self).__init__(name, mode, fileobj, **kwargs)
         self._remove_src_dir = remove_src_dir
         self._owner = owner
         self._group = group
         self._numeric_owner = numeric_owner
 
         self._added_paths_list = []
+        self._created = created
 
-    def add(self, path: str, arc_path: str = ''):
-        if path not in self._added_paths_list:
-            self._added_paths_list.append(path)
+    def add(self, name, arcname=None, recursive=True, *, filter=None):
+        if name.split(os.path.sep)[0] not in self._added_paths_list:
+            self._added_paths_list.append(name)
 
-        if not arc_path:
-            arc_path = path
+        if not arcname:
+            arcname = name
 
-        for d in sorted(os.listdir(path)):
-            file_path = os.path.join(path, d)
-            arc_name = os.path.relpath(file_path, arc_path)
+        for d in sorted(os.listdir(name)):
+            file_path = os.path.join(name, d)
+            arc_name = os.path.relpath(file_path, arcname)
 
             # # tuple(atime, mtime)
             if os.path.basename(file_path) in ['manifest.json', 'repositories']:
                 mod_time = (0.0, 0.0)
-                # kludge. Python can't change st_ctime
                 ct_time = datetime.datetime(1970, 1, 1, 0, 0, tzinfo=datetime.timezone.utc).astimezone(tzlocal())
+
                 if platform_system.startswith("win"):
-                    print(f'!!!WARNING: Creation time for file {file_path} will not be changed. Image hash sum will be different')
+                    print(
+                        f'!!!WARNING: Creation time for file {file_path} will not be changed. Image hash sum will be different')
                 else:
+                    # kludge: Python can't change st_ctime
                     os.system('$(which touch) -c -t {} {}'.format(ct_time.strftime('%Y%m%d%H%M'), file_path))
             else:
                 ct_time = parse(self._created).astimezone(tzlocal())
@@ -224,7 +293,7 @@ class TarExporter:
 
             os.utime(file_path, mod_time)
 
-            tarinfo = self.tarobject.gettarinfo(file_path, arc_name)
+            tarinfo = self.gettarinfo(file_path, arc_name)
 
             tarinfo.uid = self._owner
             tarinfo.gid = self._group
@@ -233,18 +302,27 @@ class TarExporter:
                 tarinfo.uname = ''
                 tarinfo.gname = ''
 
+            if platform_system.startswith("darwin") and self._owner == 0 and self._group == 0:
+                # kludge: for mac os
+                tarinfo.uname = 'root'
+                tarinfo.gname = 'root'
+
             if os.path.isdir(file_path):
-                self.tarobject.addfile(tarinfo)
-                self.add(file_path, path)
+                self.addfile(tarinfo)
+                self.add(file_path, name)
             else:
                 with open(file_path, "rb") as f:
-                    self.tarobject.addfile(tarinfo, f)
-
-    def __enter__(self):
-        return self
+                    self.addfile(tarinfo, f)
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.tarobject.close()
+        if exc_type is None:
+            self.close()
+        else:
+            # An exception occurred. We must not call close() because
+            # it would try to write end-of-archive blocks and padding.
+            if not self._extfileobj:
+                self.fileobj.close()
+            self.closed = True
 
         if self._remove_src_dir and exc_type is None:
             for _p in self._added_paths_list:
@@ -274,7 +352,7 @@ class ImageFetcher:
             self._session.headers['Authorization'] = auth_hdr.decode()
 
         if resp.headers.get('www-authenticate'):
-            parsed = www_authenticate.parse(resp.headers['www-authenticate'])
+            parsed = www_auth(resp.headers['www-authenticate'])
             url_parts = list(urlparse.urlparse(parsed['bearer']['realm']))
             query = urlparse.parse_qs(url_parts[4])
             query.update(service=parsed['bearer']['service'])
@@ -533,7 +611,7 @@ class ImageFetcher:
             f.write(json.dumps({image_repo: {tag: v1_layer_id}}, separators=JSON_SEPARATOR))
             f.write('\n')
 
-        with TarExporter(f'{image_name}.tar', image_config['created'], numeric_owner=True) as tar:
+        with TarFile.open(f'{image_name}.tar', 'w', created=image_config['created'], remove_src_dir=True) as tar:
             tar.add(tmp_dir)
 
 
