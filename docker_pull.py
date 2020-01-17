@@ -17,7 +17,7 @@ import urllib.parse as urlparse
 
 from collections import OrderedDict
 from dateutil.tz import tzlocal
-from dateutil.parser import parse
+from dateutil.parser import parse as date_parse
 from sys import platform as platform_system
 
 # TODO: v1_layers_ids, empty_manifest, empty_layer_json use like a struct in golang
@@ -254,7 +254,7 @@ class TarFile(tarfile.TarFile):
     format = tarfile.USTAR_FORMAT
     tarfile.RECORDSIZE = 512
 
-    def __init__(self, name, mode, fileobj, *, created, remove_src_dir: bool = False, owner: int = 0, group: int = 0,
+    def __init__(self, name, mode, fileobj, *, remove_src_dir: bool = False, owner: int = 0, group: int = 0,
                  numeric_owner: bool = True, **kwargs):
         super(TarFile, self).__init__(name, mode, fileobj, **kwargs)
         self._remove_src_dir = remove_src_dir
@@ -263,14 +263,16 @@ class TarFile(tarfile.TarFile):
         self._numeric_owner = numeric_owner
 
         self._added_paths_list = []
-        self._created = created
 
-    def add(self, name, arcname=None, recursive=True, *, filter=None):
+    def add(self, name, arcname=None, recursive=True, *, filter_=None, created=None):
         if name.split(os.path.sep)[0] not in self._added_paths_list:
             self._added_paths_list.append(name)
 
         if not arcname:
             arcname = name
+
+        if created is None:
+            created = datetime.datetime.now().isoformat()
 
         for d in sorted(os.listdir(name)):
             file_path = os.path.join(name, d)
@@ -288,7 +290,7 @@ class TarFile(tarfile.TarFile):
                     # kludge: Python can't change st_ctime
                     os.system('$(which touch) -c -t {} {}'.format(ct_time.strftime('%Y%m%d%H%M'), file_path))
             else:
-                ct_time = parse(self._created).astimezone(tzlocal())
+                ct_time = date_parse(created).astimezone(tzlocal())
                 mod_time = (ct_time.timestamp(), ct_time.timestamp())
 
             os.utime(file_path, mod_time)
@@ -309,7 +311,7 @@ class TarFile(tarfile.TarFile):
 
             if os.path.isdir(file_path):
                 self.addfile(tarinfo)
-                self.add(file_path, name)
+                self.add(file_path, name, recursive=recursive, filter_=filter_, created=created)
             else:
                 with open(file_path, "rb") as f:
                     self.addfile(tarinfo, f)
@@ -611,8 +613,8 @@ class ImageFetcher:
             f.write(json.dumps({image_repo: {tag: v1_layer_id}}, separators=JSON_SEPARATOR))
             f.write('\n')
 
-        with TarFile.open(f'{image_name}.tar', 'w', created=image_config['created'], remove_src_dir=True) as tar:
-            tar.add(tmp_dir)
+        with TarFile.open(f'{image_name}.tar', 'w', remove_src_dir=True) as tar:
+            tar.add(tmp_dir, created=image_config['created'])
 
 
 if __name__ == '__main__':
