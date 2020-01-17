@@ -19,6 +19,7 @@ import urllib.parse as urlparse
 from collections import OrderedDict
 from dateutil.tz import tzlocal
 from dateutil.parser import parse
+from sys import platform as platform_system
 
 # TODO: v1_layers_ids, empty_manifest, empty_layer_json use like a struct in golang
 # TODO: add function like a digest.Digister in moby/moby
@@ -197,30 +198,33 @@ class TarExporter:
 
         self._added_paths_list = []
 
-    def add(self, path: str, arcpath: str = ''):
+    def add(self, path: str, arc_path: str = ''):
         if path not in self._added_paths_list:
             self._added_paths_list.append(path)
 
-        if not arcpath:
-            arcpath = path
+        if not arc_path:
+            arc_path = path
 
         for d in sorted(os.listdir(path)):
-            full_path = os.path.join(path, d)
-            arcname = os.path.relpath(full_path, arcpath)
+            file_path = os.path.join(path, d)
+            arc_name = os.path.relpath(file_path, arc_path)
 
             # # tuple(atime, mtime)
-            if os.path.basename(full_path) in ['manifest.json', 'repositories']:
+            if os.path.basename(file_path) in ['manifest.json', 'repositories']:
                 mod_time = (0.0, 0.0)
                 # kludge. Python can't change st_ctime
                 ct_time = datetime.datetime(1970, 1, 1, 0, 0, tzinfo=datetime.timezone.utc).astimezone(tzlocal())
-                os.system('$(which touch) -c -t {} {}'.format(ct_time.strftime('%Y%m%d%H%M'), full_path))
+                if platform_system.startswith("win"):
+                    print(f'!!!WARNING: Creation time for file {file_path} will not be changed. Image hash sum will be different')
+                else:
+                    os.system('$(which touch) -c -t {} {}'.format(ct_time.strftime('%Y%m%d%H%M'), file_path))
             else:
                 ct_time = parse(self._created).astimezone(tzlocal())
                 mod_time = (ct_time.timestamp(), ct_time.timestamp())
 
-            os.utime(full_path, mod_time)
+            os.utime(file_path, mod_time)
 
-            tarinfo = self.tarobject.gettarinfo(full_path, arcname)
+            tarinfo = self.tarobject.gettarinfo(file_path, arc_name)
 
             tarinfo.uid = self._owner
             tarinfo.gid = self._group
@@ -229,11 +233,11 @@ class TarExporter:
                 tarinfo.uname = ''
                 tarinfo.gname = ''
 
-            if os.path.isdir(full_path):
+            if os.path.isdir(file_path):
                 self.tarobject.addfile(tarinfo)
-                self.add(full_path, path)
+                self.add(file_path, path)
             else:
-                with open(full_path, "rb") as f:
+                with open(file_path, "rb") as f:
                     self.tarobject.addfile(tarinfo, f)
 
     def __enter__(self):
