@@ -285,7 +285,8 @@ class TarFile(tarfile.TarFile):
 
                 if platform_system.startswith("win"):
                     print(
-                        f'!!!WARNING: Creation time for file {file_path} will not be changed. Image hash sum will be different')
+                        f'!!!WARNING: Creation time for file {file_path} '
+                        'will not be changed. Image hash sum will be different')
                 else:
                     # kludge: Python can't change st_ctime
                     os.system('$(which touch) -c -t {} {}'.format(ct_time.strftime('%Y%m%d%H%M'), file_path))
@@ -351,7 +352,7 @@ class ImageFetcher:
 
         if self._user:
             auth_hdr = base64.b64encode(f'{self._user}:{self._password}'.encode())
-            self._session.headers['Authorization'] = auth_hdr.decode()
+            self._session.headers['Authorization'] = 'Basic {}'.format(auth_hdr.decode())
 
         if resp.headers.get('www-authenticate'):
             parsed = www_auth(resp.headers['www-authenticate'])
@@ -535,7 +536,7 @@ class ImageFetcher:
         manifests_list_data = manifests_list.json()
         logging.debug(f'Manifest list headers: {manifests_list.headers}')
 
-        for manifest in manifests_list_data['manifests']:
+        for manifest in manifests_list_data.get('manifests', []):
             if manifest['platform']['architecture'] == arch:
                 tag_digest = manifest['digest']
                 image_os = manifest['platform']['os']
@@ -621,9 +622,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='docker_pull.py')
     parser.add_argument('image', nargs='+')
     parser.add_argument('--verbose', '-v', action='count', default=0)
+    parser.add_argument('--user', type=str)
+    parser.add_argument('--password', type=str)
     arg = parser.parse_args()
 
-    p = ImageFetcher(verbose=arg.verbose)
+    p = ImageFetcher(user=arg.user, password=arg.password, verbose=arg.verbose)
 
     for img in arg.image:
         p.pull(img)
