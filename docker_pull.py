@@ -392,15 +392,16 @@ class TarFile(tarfile.TarFile):
 
 
 class ImageFetcher:
-    def __init__(self, *, user: str = None, password: str = None, ssl: bool = True, verbose: int = 0):
+    def __init__(self, *, user: str = None, password: str = None, ssl: bool = True, verbose: bool = False,
+                 save_cache: bool = False):
         self._ssl = ssl
         self._user = user
         self._password = password
         self._session = requests.Session()
+        self._save_cache = save_cache
 
         if verbose:
-            self._log_level = logging.INFO if verbose == 1 else logging.DEBUG
-            logging.basicConfig(level=self._log_level)
+            logging.basicConfig(level=logging.DEBUG)
 
     def _make_url(self, registry: str, ns: str) -> str:
         return urlparse.urlunsplit(('https' if self._ssl else 'http', registry, f'/v2/{ns}/', None, None))
@@ -663,7 +664,7 @@ class ImageFetcher:
 
             parent_id = v1_layer_id
 
-        print('Digest:', manifests_list.headers.get('Docker-Content-Digest'))
+        print('Digest:', image_manifest_res.headers.get('Docker-Content-Digest'))
 
         with saver("manifest.json") as f:
             f.write(json.dumps(man, separators=JSON_SEPARATOR))
@@ -673,19 +674,22 @@ class ImageFetcher:
             f.write(json.dumps({image_repo: {tag: v1_layer_id}}, separators=JSON_SEPARATOR))
             f.write('\n')
 
-        with TarFile.open(f'{image_name}.tar', 'w', remove_src_dir=True) as tar:
+        with TarFile.open(f'{image_name}.tar', 'w', remove_src_dir=not self._save_cache) as tar:
             tar.add(tmp_dir, created=image_config['created'])
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(prog='docker_pull.py')
+    parser = argparse.ArgumentParser(prog='docker_pull.py',
+                                     formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=36,
+                                                                                         width=93))
     parser.add_argument('image', nargs='+')
-    parser.add_argument('--verbose', '-v', action='count', default=0)
-    parser.add_argument('--user', type=str)
-    parser.add_argument('--password', type=str)
+    parser.add_argument('--save-cache', '-s', action='store_true',
+                        help="Do not delete the temp folder after downloading the image")
+    parser.add_argument('--verbose', '-v', action='store_true', help="Enable verbose output")
+    parser.add_argument('--user', '-u', type=str, help="Registry login")
+    parser.add_argument('--password', '-p', type=str, help="Registry password")
     arg = parser.parse_args()
 
-    p = ImageFetcher(user=arg.user, password=arg.password, verbose=arg.verbose)
-
+    p = ImageFetcher(user=arg.user, password=arg.password, verbose=arg.verbose, save_cache=arg.save_cache)
     for img in arg.image:
         p.pull(img)
