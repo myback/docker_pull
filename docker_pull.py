@@ -27,6 +27,70 @@ JSON_SEPARATOR = (',', ':')
 DOCKER_REGISTRY_HOST = 'registry-1.docker.io'
 
 
+def py_scanstring(s, end, strict=True, _b=json.decoder.BACKSLASH, _m=json.decoder.STRINGCHUNK.match):
+    """Scan the string s for a JSON string. End is the index of the
+    character in s after the quote that started the JSON string.
+    Unescapes all valid JSON string escape sequences and raises ValueError
+    on attempt to decode an invalid string. If strict is False then literal
+    control characters are allowed in the string.
+    Returns a tuple of the decoded string and the index of the character in s
+    after the end quote."""
+    chunks = []
+    _append = chunks.append
+    begin = end - 1
+    while 1:
+        chunk = _m(s, end)
+        if chunk is None:
+            raise json.JSONDecodeError("Unterminated string starting at", s, begin)
+        end = chunk.end()
+        content, terminator = chunk.groups()
+        # Content is contains zero or more unescaped string characters
+        if content:
+            _append(content)
+        # Terminator is the end of string, a literal control character,
+        # or a backslash denoting that an escape sequence follows
+        if terminator == '"':
+            break
+        elif terminator != '\\':
+            if strict:
+                msg = "Invalid control character {0!r} at".format(terminator)
+                raise json.JSONDecodeError(msg, s, end)
+            else:
+                _append(terminator)
+                continue
+        try:
+            esc = s[end]
+        except IndexError:
+            raise json.JSONDecodeError("Unterminated string starting at", s, begin)
+        # If not a unicode escape sequence, must be in the lookup table
+        if esc != 'u':
+            try:
+                char = _b[esc]
+            except KeyError:
+                msg = "Invalid \\escape: {0!r}".format(esc)
+                raise json.JSONDecodeError(msg, s, end)
+            end += 1
+        else:
+            st = end - 1
+            end += 5
+            char = s[st:end]
+        _append(char)
+    return ''.join(chunks), end
+
+
+class JSONDecoderRawString(json.JSONDecoder):
+    def __init__(self, *args, **kwargs):
+        json.JSONDecoder.__init__(self, *args, **kwargs)
+        self.parse_string = JSONDecoderRawString.new_scanstring
+        self.scan_once = json.scanner.py_make_scanner(self)
+        json.decoder.scanstring = py_scanstring
+
+    @classmethod
+    def new_scanstring(cls, _s, end, strict=False):
+        ss, end = json.decoder.scanstring(_s, end, strict)
+        return ss, end
+
+
 def www_auth(hdr: str) -> dict:
     ret = {}
 
@@ -108,7 +172,7 @@ def v1_layers_ids(chain_ids_list, config_image):
             if parent:
                 cfg['parent'] = parent
 
-        j = json.dumps(cfg, separators=JSON_SEPARATOR)
+        j = json.dumps(cfg, separators=JSON_SEPARATOR, ensure_ascii=False).replace(r'\\u', r'\u')
         parent = "sha256:" + hashlib.sha256(j.encode()).hexdigest()
         r.append(parent)
 
@@ -304,11 +368,6 @@ class TarFile(tarfile.TarFile):
             if self._numeric_owner:
                 tarinfo.uname = ''
                 tarinfo.gname = ''
-
-            if platform_system.startswith("darwin") and self._owner == 0 and self._group == 0:
-                # kludge: for mac os
-                tarinfo.uname = 'root'
-                tarinfo.gname = 'root'
 
             if os.path.isdir(file_path):
                 self.addfile(tarinfo)
@@ -563,7 +622,7 @@ class ImageFetcher:
         with saver(config_filename) as f:
             f.write(image_config.content)
 
-        image_config = image_config.json(object_pairs_hook=OrderedDict)
+        image_config = image_config.json(object_pairs_hook=OrderedDict, cls=JSONDecoderRawString)
         diff_ids = image_config['rootfs']['diff_ids']
 
         layers = image_manifest['layers']
@@ -597,7 +656,7 @@ class ImageFetcher:
                 del layer_json['rootfs']
 
             with saver(v1_layer_id, "json") as f:
-                f.write(json.dumps(layer_json, separators=JSON_SEPARATOR))
+                f.write(json.dumps(layer_json, separators=JSON_SEPARATOR, ensure_ascii=False).replace(r'\\u', r'\u'))
 
             with saver(v1_layer_id, "VERSION") as f:
                 f.write("1.0")
