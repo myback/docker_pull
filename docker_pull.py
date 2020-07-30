@@ -369,11 +369,6 @@ class TarFile(tarfile.TarFile):
                 tarinfo.uname = ''
                 tarinfo.gname = ''
 
-            if platform_system.startswith("darwin") and self._owner == 0 and self._group == 0:
-                # kludge: for mac os
-                tarinfo.uname = 'root'
-                tarinfo.gname = 'root'
-
             if os.path.isdir(file_path):
                 self.addfile(tarinfo)
                 self.add(file_path, name, recursive=recursive, filter_=filter_, created=created)
