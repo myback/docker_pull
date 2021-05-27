@@ -430,11 +430,11 @@ class ImageFetcher:
 
             self._session.headers['Authorization'] = 'Bearer {}'.format(r.json()['token'])
 
-    def _req(self, url, *, method='GET', stream=None):
-        r = self._session.request(method, url, stream=stream)
+    def _req(self, url, *, method='GET', stream: bool = None, headers: dict = None):
+        r = self._session.request(method, url, stream=stream, headers=headers)
         if r.status_code == requests.codes.unauthorized:
             self._auth(r)
-            r = self._session.request(method, url, stream=stream)
+            r = self._session.request(method, url, stream=stream, headers=headers)
 
         if r.status_code == requests.codes.ok or \
                 r.status_code == requests.codes.created or \
@@ -445,16 +445,14 @@ class ImageFetcher:
 
         r.raise_for_status()
 
-    def _manifests_req(self, url: str, tag: str) -> requests.Response:
-        return self._req(urlparse.urljoin(url, f'manifests/{tag}'))
+    def _manifests_req(self, url: str, tag: str, accept_hdr: str) -> requests.Response:
+        return self._req(urlparse.urljoin(url, f'manifests/{tag}'), headers={'Accept': accept_hdr})
 
     def get_manifest(self, url: str, tag: str) -> requests.Response:
-        self._session.headers['Accept'] = 'application/vnd.docker.distribution.manifest.v2+json'
-        return self._manifests_req(url, tag)
+        return self._manifests_req(url, tag, 'application/vnd.docker.distribution.manifest.v2+json')
 
     def get_manifest_list(self, url: str, tag: str) -> requests.Response:
-        self._session.headers['Accept'] = 'application/vnd.docker.distribution.manifest.list.v2+json'
-        return self._manifests_req(url, tag)
+        return self._manifests_req(url, tag, 'application/vnd.docker.distribution.manifest.list.v2+json')
 
     def get_blob(self, url: str, tag: str, stream: bool = False) -> requests.Response:
         if stream:
