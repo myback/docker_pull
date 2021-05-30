@@ -121,6 +121,29 @@ def chain_ids(ids: list) -> list:
     return chain
 
 
+def container_config():
+    # container.Config
+    return OrderedDict(
+        Hostname="",
+        Domainname="",
+        User="",
+        AttachStdin=False,
+        AttachStdout=False,
+        AttachStderr=False,
+        Tty=False,
+        OpenStdin=False,
+        StdinOnce=False,
+        Env=None,
+        Cmd=None,
+        Image="",
+        Volumes=None,
+        WorkingDir="",
+        Entrypoint=None,
+        OnBuild=None,
+        Labels=None
+    )
+
+
 def v1_layers_ids(chain_ids_list, config_image):
     r = []
     parent = ''
@@ -146,25 +169,7 @@ def v1_layers_ids(chain_ids_list, config_image):
             cfg.update(v1_img)
         else:
             cfg = OrderedDict(
-                container_config=OrderedDict(
-                    Hostname="",
-                    Domainname="",
-                    User="",
-                    AttachStdin=False,
-                    AttachStdout=False,
-                    AttachStderr=False,
-                    Tty=False,
-                    OpenStdin=False,
-                    StdinOnce=False,
-                    Env=None,
-                    Cmd=None,
-                    Image="",
-                    Volumes=None,
-                    WorkingDir="",
-                    Entrypoint=None,
-                    OnBuild=None,
-                    Labels=None
-                ),
+                container_config=container_config(),
                 created="1970-01-01T00:00:00Z",
                 layer_id=chain_id,
             )
@@ -436,17 +441,13 @@ class ImageFetcher:
             self._auth(r)
             r = self._session.request(method, url, stream=stream, headers=headers)
 
-        if r.status_code == requests.codes.ok or \
-                r.status_code == requests.codes.created or \
-                r.status_code == requests.codes.accepted or \
-                r.status_code == requests.codes.no_content or \
-                r.status_code == requests.codes.range_not_satisfiable:
-            return r
+        if r.status_code != requests.codes.ok:
+            r.raise_for_status()
 
-        r.raise_for_status()
+        return r
 
     def _manifests_req(self, url: str, tag: str, accept_hdr: str) -> requests.Response:
-        return self._req(urlparse.urljoin(url, f'manifests/{tag}'), headers={'Accept': accept_hdr})
+            return self._req(urlparse.urljoin(url, f'manifests/{tag}'), headers={'Accept': accept_hdr})
 
     def get_manifest(self, url: str, tag: str) -> requests.Response:
         return self._manifests_req(url, tag, 'application/vnd.docker.distribution.manifest.v2+json')
@@ -474,25 +475,7 @@ class ImageFetcher:
         if last_layer:
             od['container'] = ''
 
-        od['container_config'] = OrderedDict(
-            Hostname="",
-            Domainname="",
-            User="",
-            AttachStdin=False,
-            AttachStdout=False,
-            AttachStderr=False,
-            Tty=False,
-            OpenStdin=False,
-            StdinOnce=False,
-            Env=None,
-            Cmd=None,
-            Image="",
-            Volumes=None,
-            WorkingDir="",
-            Entrypoint=None,
-            OnBuild=None,
-            Labels=None
-        )
+        od['container_config'] = container_config()
 
         if last_layer:
             od['docker_version'] = '18.06.1-ce'
@@ -549,21 +532,20 @@ class ImageFetcher:
 
         content_length = int(r.headers.get('Content-Length', 0))
 
-        if r.status_code != 416:
-            with open(gziped_file, open_file_mode) as file:
-                done = 0
-                chunk_size = 8192
-                for chunk in r.iter_content(chunk_size=chunk_size):
-                    if chunk:
-                        file.write(chunk)
-                        done += len(chunk)
+        with open(gziped_file, open_file_mode) as file:
+            done = 0
+            chunk_size = 8192
+            for chunk in r.iter_content(chunk_size=chunk_size):
+                if chunk:
+                    file.write(chunk)
+                    done += len(chunk)
 
-                        progress_bar(f"{layer_id_short}: Downloading", content_length, done)
+                    progress_bar(f"{layer_id_short}: Downloading", content_length, done)
 
         if 'Range' in self._session.headers:
             del self._session.headers['Range']
 
-        with gzip.open(gziped_file, 'rb') as gz_data, open(output_file, 'wb') as unzip_data:
+        with gzip.open(gziped_file, 'rb') as gz_data, open(output_file, 'wb') as gunzip_data:
             gz_data.myfileobj.seek(-4, 2)
             isize = struct.unpack('I', gz_data.myfileobj.read(4))[0]
             gz_data.myfileobj.seek(0)
@@ -574,7 +556,7 @@ class ImageFetcher:
                 chunk = gz_data.read(copy_chunk)
                 if not chunk:
                     break
-                unzip_data.write(chunk)
+                gunzip_data.write(chunk)
                 done += len(chunk)
 
                 progress_bar(f"{layer_id_short}: Extracting", isize, done)
@@ -606,13 +588,10 @@ class ImageFetcher:
 
         image_id = image_manifest['config']['digest']
         image_name = '{}_{}'.format(ns.replace('/', '_'), tag.replace(':', '_'))
-        image_repo = ns.replace('library/', '') if ns.startswith('library/') and reg == DOCKER_REGISTRY_HOST else ns
         tmp_dir = f'{image_name}.tmp'
-        config_filename = f'{image_id[7:]}.json'
 
-        man = self.empty_manifest
-        man[0]['Config'] = config_filename
-        man[0]['RepoTags'].append(f'{image_repo}:{tag}')
+        config_filename = f'{image_id[7:]}.json'
+        image_repo = ns.replace('library/', '') if ns.startswith('library/') and reg == DOCKER_REGISTRY_HOST else ns
 
         saver = FileExporter(tmp_dir)
 
@@ -630,6 +609,10 @@ class ImageFetcher:
 
         chain_ids_list = chain_ids(diff_ids)
         v1_layer_ids_list = v1_layers_ids(chain_ids_list, image_config)
+
+        man = self.empty_manifest
+        man[0]['Config'] = config_filename
+        man[0]['RepoTags'].append(f'{image_repo}:{tag}')
 
         v1_layer_id = ''
         parent_id = ''
