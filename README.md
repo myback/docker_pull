@@ -41,5 +41,5 @@ Verbose
 ```
 Fetch image from private registry
 ```bash
-> ./docker_pull.py --user username --password "P@$$w0rd" private-registry.mydomain.com/my_image:1.2.3
+> ./docker_pull.py --user username --password 'P@$$w0rd' private-registry.mydomain.com/my_image:1.2.3
 ```
