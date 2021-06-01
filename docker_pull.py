@@ -16,9 +16,7 @@ import typing
 import urllib.parse as urlparse
 
 from collections import OrderedDict
-from dateutil.tz import tzlocal
 from dateutil.parser import parse as date_parse
-from sys import platform as platform_system
 
 # TODO: v1_layers_ids, empty_manifest, empty_layer_json use like a struct in golang
 # TODO: add function like a digest.Digister in moby/moby
@@ -347,20 +345,10 @@ class TarFile(tarfile.TarFile):
             file_path = os.path.join(name, d)
             arc_name = os.path.relpath(file_path, arcname)
 
-            # # tuple(atime, mtime)
             if os.path.basename(file_path) in ['manifest.json', 'repositories']:
                 mod_time = (0.0, 0.0)
-                ct_time = datetime.datetime(1970, 1, 1, 0, 0, tzinfo=datetime.timezone.utc).astimezone(tzlocal())
-
-                if platform_system.startswith("win"):
-                    print(
-                        f'!!!WARNING: Creation time for file {file_path} '
-                        'will not be changed. Image hash sum will be different')
-                else:
-                    # kludge: Python can't change st_ctime
-                    os.system('$(which touch) -c -t {} {}'.format(ct_time.strftime('%Y%m%d%H%M'), file_path))
             else:
-                ct_time = date_parse(created).astimezone(tzlocal())
+                ct_time = date_parse(created)
                 mod_time = (ct_time.timestamp(), ct_time.timestamp())
 
             os.utime(file_path, mod_time)
@@ -447,7 +435,7 @@ class ImageFetcher:
         return r
 
     def _manifests_req(self, url: str, tag: str, accept_hdr: str) -> requests.Response:
-            return self._req(urlparse.urljoin(url, f'manifests/{tag}'), headers={'Accept': accept_hdr})
+        return self._req(urlparse.urljoin(url, f'manifests/{tag}'), headers={'Accept': accept_hdr})
 
     def get_manifest(self, url: str, tag: str) -> requests.Response:
         return self._manifests_req(url, tag, 'application/vnd.docker.distribution.manifest.v2+json')
