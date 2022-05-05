@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import requests
+import requests.auth
 import shutil
 import struct
 import tarfile
@@ -403,25 +404,22 @@ class ImageFetcher:
         if self._session.headers.get('Authorization'):
             del self._session.headers['Authorization']
 
-        if self._user:
-            auth_hdr = base64.b64encode(f'{self._user}:{self._password}'.encode())
-            self._session.headers['Authorization'] = 'Basic {}'.format(auth_hdr.decode())
+        auth = requests.auth.HTTPBasicAuth(self._user, self._password) if self._user else None
 
-        if resp.headers.get('www-authenticate'):
-            parsed = www_auth(resp.headers['www-authenticate'])
-            url_parts = list(urlparse.urlparse(parsed['bearer']['realm']))
-            query = urlparse.parse_qs(url_parts[4])
-            query.update(service=parsed['bearer']['service'])
+        parsed = www_auth(resp.headers['www-authenticate'])
+        url_parts = list(urlparse.urlparse(parsed['bearer']['realm']))
+        query = urlparse.parse_qs(url_parts[4])
+        query.update(service=parsed['bearer']['service'])
 
-            if 'scope' in parsed['bearer']:
-                query.update(scope=parsed['bearer']['scope'])
+        if 'scope' in parsed['bearer']:
+            query.update(scope=parsed['bearer']['scope'])
 
-            url_parts[4] = urlparse.urlencode(query, True)
+        url_parts[4] = urlparse.urlencode(query, True)
 
-            r = self._session.get(urlparse.urlunparse(url_parts))
-            r.raise_for_status()
+        r = self._session.get(urlparse.urlunparse(url_parts), auth=auth)
+        r.raise_for_status()
 
-            self._session.headers['Authorization'] = 'Bearer {}'.format(r.json()['token'])
+        self._session.headers.update(Authorization=f"Bearer {r.json()['token']}")
 
     def _req(self, url, *, method='GET', stream: bool = None, headers: dict = None):
         r = self._session.request(method, url, stream=stream, headers=headers)
