@@ -1,6 +1,8 @@
 .idea/
 .vscode/
 .history/
+.venv/
+venv/
 
 __pycache__/
 *.tmp/

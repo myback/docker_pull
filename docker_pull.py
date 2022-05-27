@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import base64
 import datetime
 import gzip
 import hashlib
@@ -474,28 +473,29 @@ class ImageFetcher:
 
     @staticmethod
     def parser(image: str) -> tuple:
-        registry = DOCKER_REGISTRY_HOST
+        registry = ''
+        tag = 'latest'
 
-        image_parts = image.split('/')
-        if len(image_parts) == 1:
-            ns_parts = ['library']
-        elif '.' in image_parts[0] or ':' in image_parts[0]:
-            registry = image_parts[0]
-            ns_parts = image_parts[1:-1]
-        else:
-            ns_parts = image_parts[:-1]
+        idx = image.find('/')
+        if idx > -1 and ('.' in image[:idx] or ':' in image[:idx]):
+            registry = image[:idx]
+            image = image[idx + 1:]
 
-        image_name_tag = image_parts[-1].rsplit('@') if '@' in image_parts[-1] else image_parts[-1].split(':')
-        ns_parts.append(image_name_tag[0])
+        idx = image.find('@')
+        if idx > -1:
+            tag = image[idx + 1:]
+            image = image[:idx]
 
-        if len(image_name_tag) == 1:
-            tag = 'latest'
-        elif len(image_name_tag) == 2:
-            tag = image_name_tag[1]
-        else:
-            raise Exception(f'Image format name {image} is invalid')
+        idx = image.find(':')
+        if idx > -1:
+            tag = image[idx + 1:]
+            image = image[:idx]
 
-        return registry, '/'.join(ns_parts), tag
+        idx = image.find('/')
+        if idx == -1 and registry == '':
+            image = 'library/' + image
+
+        return registry or DOCKER_REGISTRY_HOST, image, tag
 
     def _get_layer(self, url, layer_digest, diff_id, output_file):
         gziped_file = f'{output_file}.gz'
