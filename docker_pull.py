@@ -2,6 +2,7 @@
 
 import argparse
 import datetime
+import getpass
 import gzip
 import hashlib
 import json
@@ -646,17 +647,24 @@ class ImageFetcher:
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(prog='docker_pull.py',
-                                     formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=36,
-                                                                                         width=93))
+    parser = argparse.ArgumentParser(
+        prog='docker_pull.py',
+        formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=36, width=93))
+
     parser.add_argument('image', nargs='+')
     parser.add_argument('--save-cache', '-s', action='store_true',
                         help="Do not delete the temp folder after downloading the image")
     parser.add_argument('--verbose', '-v', action='store_true', help="Enable verbose output")
     parser.add_argument('--user', '-u', type=str, help="Registry login")
-    parser.add_argument('--password', '-p', type=str, help="Registry password")
+    grp = parser.add_mutually_exclusive_group()
+    grp.add_argument('--password', '-p', type=str, help="Registry password")
+    grp.add_argument('-P', action='store_true', help="Registry password (interactive)")
     arg = parser.parse_args()
 
-    p = ImageFetcher(user=arg.user, password=arg.password, verbose=arg.verbose, save_cache=arg.save_cache)
+    password = arg.password
+    if arg.P:
+        password = getpass.getpass()
+
+    p = ImageFetcher(user=arg.user, password=password, verbose=arg.verbose, save_cache=arg.save_cache)
     for img in arg.image:
         p.pull(img)
