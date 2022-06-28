@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import dataclasses
 import datetime
 import getpass
 import gzip
@@ -8,86 +9,192 @@ import hashlib
 import json
 import logging
 import os
-import requests
-import requests.auth
+import platform
 import shutil
 import struct
 import tarfile
 import typing
 import urllib.parse as urlparse
+from typing import List
 
-from collections import OrderedDict
+import requests
+import requests.auth
 from dateutil.parser import parse as date_parse
-
-# TODO: v1_layers_ids, empty_manifest, empty_layer_json use like a struct in golang
-# TODO: add function like a digest.Digister in moby/moby
 
 JSON_SEPARATOR = (',', ':')
 DOCKER_REGISTRY_HOST = 'registry-1.docker.io'
 
 
-def py_scanstring(s, end, strict=True, _b=json.decoder.BACKSLASH, _m=json.decoder.STRINGCHUNK.match):
-    """Scan the string s for a JSON string. End is the index of the
-    character in s after the quote that started the JSON string.
-    Unescapes all valid JSON string escape sequences and raises ValueError
-    on attempt to decode an invalid string. If strict is False then literal
-    control characters are allowed in the string.
-    Returns a tuple of the decoded string and the index of the character in s
-    after the end quote."""
-    chunks = []
-    _append = chunks.append
-    begin = end - 1
-    while 1:
-        chunk = _m(s, end)
-        if chunk is None:
-            raise json.JSONDecodeError("Unterminated string starting at", s, begin)
-        end = chunk.end()
-        content, terminator = chunk.groups()
-        # Content is contains zero or more unescaped string characters
-        if content:
-            _append(content)
-        # Terminator is the end of string, a literal control character,
-        # or a backslash denoting that an escape sequence follows
-        if terminator == '"':
-            break
-        elif terminator != '\\':
-            if strict:
-                msg = "Invalid control character {0!r} at".format(terminator)
-                raise json.JSONDecodeError(msg, s, end)
-            else:
-                _append(terminator)
-                continue
-        try:
-            esc = s[end]
-        except IndexError:
-            raise json.JSONDecodeError("Unterminated string starting at", s, begin)
-        # If not a unicode escape sequence, must be in the lookup table
-        if esc != 'u':
-            try:
-                char = _b[esc]
-            except KeyError:
-                msg = "Invalid \\escape: {0!r}".format(esc)
-                raise json.JSONDecodeError(msg, s, end)
-            end += 1
+@dataclasses.dataclass
+class ContainerConfig:
+    Hostname: str = ''
+    Domainname: str = ''
+    User: str = ''
+    AttachStdin: bool = False
+    AttachStdout: bool = False
+    AttachStderr: bool = False
+    Tty: bool = False
+    OpenStdin: bool = False
+    StdinOnce: bool = False
+    Env: list = None
+    Cmd: list = None
+    Image: str = ''
+    Volumes: list = None
+    WorkingDir: str = ''
+    Entrypoint: list = None
+    OnBuild: list = None
+    Labels: dict = None
+
+
+@dataclasses.dataclass
+class StructClasses:
+    @property
+    def json(self) -> str:
+        d = dataclasses.asdict(self)
+
+        for field in dataclasses.fields(self):
+            if field.metadata.get('omitempty') and d[field.name] is None:
+                del d[field.name]
+
+        return json.dumps(d, separators=JSON_SEPARATOR, ensure_ascii=False).replace(r'\\u', r'\u')
+
+    def update(self, **kwargs):
+        for k, v in kwargs.items():
+            if hasattr(self, k):
+                setattr(self, k, v)
+
+
+@dataclasses.dataclass
+class LayerConfig(StructClasses):
+    architecture: str = dataclasses.field(default=None, metadata={'omitempty': True})
+    comment: str = dataclasses.field(default=None, metadata={'omitempty': True})
+    config: ContainerConfig = dataclasses.field(default=None, metadata={'omitempty': True})
+    container: str = dataclasses.field(default=None, metadata={'omitempty': True})
+    container_config: ContainerConfig = dataclasses.field(default=None, metadata={'omitempty': True})
+    created: str = '1970-01-01T00:00:00Z'
+    docker_version: str = dataclasses.field(default=None, metadata={'omitempty': True})
+    layer_id: str = None
+    os: str = dataclasses.field(default=None, metadata={'omitempty': True})
+    parent: str = dataclasses.field(default=None, metadata={'omitempty': True})
+
+
+@dataclasses.dataclass
+class V1Image(StructClasses):
+    id: str = dataclasses.field(default=None, metadata={'omitempty': True})
+    parent: str = dataclasses.field(default=None, metadata={'omitempty': True})
+    comment: str = dataclasses.field(default=None, metadata={'omitempty': True})
+    created: str = '1970-01-01T00:00:00Z'
+    container: str = dataclasses.field(default=None, metadata={'omitempty': True})
+    container_config: ContainerConfig = dataclasses.field(default=None, metadata={'omitempty': True})
+    docker_version: str = dataclasses.field(default=None, metadata={'omitempty': True})
+    author: str = dataclasses.field(default=None, metadata={'omitempty': True})
+    config: ContainerConfig = dataclasses.field(default=None, metadata={'omitempty': True})
+    architecture: str = dataclasses.field(default=None, metadata={'omitempty': True})
+    variant: str = dataclasses.field(default=None, metadata={'omitempty': True})
+    os: str = dataclasses.field(default='linux', metadata={'omitempty': True})
+    size: int = dataclasses.field(default=None, metadata={'omitempty': True})
+
+
+@dataclasses.dataclass
+class RootFS:
+    type: str
+    diff_ids: List[str] = dataclasses.field(default_factory=list, metadata={'omitempty': True})
+
+
+@dataclasses.dataclass
+class Image(V1Image):
+    rootfs: RootFS = dataclasses.field(default=None, metadata={'omitempty': True})
+    history: List[str] = dataclasses.field(default_factory=list, metadata={'omitempty': True})
+    # os.version: str  # omitempty
+    # os.features: List[str]  # omitempty
+
+
+@dataclasses.dataclass
+class Manifest:
+    Config: str = ''
+    RepoTags: List[str] = dataclasses.field(default_factory=list)
+    Layers: List[str] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass
+class ManifestList:
+    manifests: List[Manifest] = dataclasses.field(default_factory=list)
+
+    @property
+    def json(self) -> str:
+        r = []
+        for m in self.manifests:
+            r.append(dataclasses.asdict(m))
+
+        return json.dumps(r, separators=JSON_SEPARATOR, ensure_ascii=False)
+
+
+def chain_ids(ids_list: list) -> list:
+    chain = list()
+    chain.append(ids_list[0])
+
+    if len(ids_list) < 2:
+        return ids_list
+
+    nxt = list()
+    nxt.append("sha256:" + hashlib.sha256(f'{ids_list[0]} {ids_list[1]}'.encode()).hexdigest())
+    nxt.extend(ids_list[2:])
+
+    chain.extend(chain_ids(nxt))
+
+    return chain
+
+
+def layer_ids_list(chain_ids_list: list, config_image: dict):
+    chan_ids = []
+    parent = None
+
+    if 'id' in config_image:
+        del config_image['id']
+
+    _info = dict(sorted(config_image.items()))
+    for chain_id in chain_ids_list:
+        config = LayerConfig(layer_id=chain_id, parent=parent)
+
+        if chain_id == chain_ids_list[-1]:
+            del _info['history']
+            del _info['rootfs']
+
+            config.update(**_info)
+
         else:
-            st = end - 1
-            end += 5
-            char = s[st:end]
-        _append(char)
-    return ''.join(chunks), end
+            config.container_config = ContainerConfig()
+
+        parent = "sha256:" + hashlib.sha256(config.json.encode()).hexdigest()
+        chan_ids.append(parent)
+
+    return chan_ids
 
 
-class JSONDecoderRawString(json.JSONDecoder):
-    def __init__(self, *args, **kwargs):
-        json.JSONDecoder.__init__(self, *args, **kwargs)
-        self.parse_string = JSONDecoderRawString.new_scanstring
-        self.scan_once = json.scanner.py_make_scanner(self)
-        json.decoder.scanstring = py_scanstring
+def image_name_parser(image: str) -> tuple:
+    registry = ''
+    tag = 'latest'
 
-    @classmethod
-    def new_scanstring(cls, _s, end, strict=False):
-        ss, end = json.decoder.scanstring(_s, end, strict)
-        return ss, end
+    idx = image.find('/')
+    if idx > -1 and ('.' in image[:idx] or ':' in image[:idx]):
+        registry = image[:idx]
+        image = image[idx + 1:]
+
+    idx = image.find('@')
+    if idx > -1:
+        tag = image[idx + 1:]
+        image = image[:idx]
+
+    idx = image.find(':')
+    if idx > -1:
+        tag = image[idx + 1:]
+        image = image[:idx]
+
+    idx = image.find('/')
+    if idx == -1 and registry == '':
+        image = 'library/' + image
+
+    return registry or DOCKER_REGISTRY_HOST, image, tag
 
 
 def www_auth(hdr: str) -> dict:
@@ -104,85 +211,6 @@ def www_auth(hdr: str) -> dict:
     return ret
 
 
-def chain_ids(ids: list) -> list:
-    chain = list()
-    chain.append(ids[0])
-
-    if len(ids) < 2:
-        return ids
-
-    nxt = list()
-    nxt.append("sha256:" + hashlib.sha256(f'{ids[0]} {ids[1]}'.encode()).hexdigest())
-    nxt.extend(ids[2:])
-
-    chain.extend(chain_ids(nxt))
-
-    return chain
-
-
-def container_config():
-    # container.Config
-    return OrderedDict(
-        Hostname="",
-        Domainname="",
-        User="",
-        AttachStdin=False,
-        AttachStdout=False,
-        AttachStderr=False,
-        Tty=False,
-        OpenStdin=False,
-        StdinOnce=False,
-        Env=None,
-        Cmd=None,
-        Image="",
-        Volumes=None,
-        WorkingDir="",
-        Entrypoint=None,
-        OnBuild=None,
-        Labels=None
-    )
-
-
-def v1_layers_ids(chain_ids_list, config_image):
-    r = []
-    parent = ''
-    for chain_id in chain_ids_list:
-        if chain_id == chain_ids_list[-1]:
-            cfg = OrderedDict(
-                architecture='amd64',
-                config='',
-                container='',
-                container_config='',
-                created='1970-01-01T00:00:00Z',
-                docker_version='18.06.1-ce',
-                layer_id=chain_id,
-                os='linux'
-            )
-            if parent:
-                cfg['parent'] = parent
-
-            v1_img = config_image.copy()
-            del v1_img['history']
-            del v1_img['rootfs']
-
-            cfg.update(v1_img)
-        else:
-            cfg = OrderedDict(
-                container_config=container_config(),
-                created="1970-01-01T00:00:00Z",
-                layer_id=chain_id,
-            )
-
-            if parent:
-                cfg['parent'] = parent
-
-        j = json.dumps(cfg, separators=JSON_SEPARATOR, ensure_ascii=False).replace(r'\\u', r'\u')
-        parent = "sha256:" + hashlib.sha256(j.encode()).hexdigest()
-        r.append(parent)
-
-    return r
-
-
 def sha256sum(filename, chunk_size=16384):
     h = hashlib.sha256()
     with open(filename, 'rb', buffering=0) as f:
@@ -195,16 +223,19 @@ def sha256sum(filename, chunk_size=16384):
 
 
 def sizeof_fmt(num):
-    for unit in ['B', 'KiB', 'MiB', 'GiB', 'TiB']:
+    for unit in ['B', 'KiB', 'MiB', 'GiB']:
         if abs(num) < 1024:
             return f'{num:3.1f}{unit}'
         num /= 1024
 
-    return f'{num:3.1f}PiB'
+    return f'{num:3.1f}TiB'
 
 
 def progress_bar(description, content_length, done, progressbar_length=50):
     # TODO: shutil.get_terminal_size((80, 20))
+    if not content_length:
+        content_length = done
+
     fill = int(progressbar_length * done / content_length)
     progress_bar_fill = '=' * (fill - 1) + '>'
     progress_bar_str = "{} [{: <{length}}] {}/{}".format(description,
@@ -324,7 +355,7 @@ class TarFile(tarfile.TarFile):
 
     def __init__(self, name, mode, fileobj, *, remove_src_dir: bool = False, owner: int = 0, group: int = 0,
                  numeric_owner: bool = True, **kwargs):
-        super(TarFile, self).__init__(name, mode, fileobj, **kwargs)
+        super().__init__(name, mode, fileobj, **kwargs)
         self._remove_src_dir = remove_src_dir
         self._owner = owner
         self._group = group
@@ -421,84 +452,36 @@ class ImageFetcher:
 
         self._session.headers.update(Authorization=f"Bearer {r.json()['token']}")
 
-    def _req(self, url, *, method='GET', stream: bool = None, headers: dict = None):
-        r = self._session.request(method, url, stream=stream, headers=headers)
+    def _req(self, url, *, method='GET', headers: dict = None, stream: bool = None):
+        r = self._session.request(method, url, headers=headers, stream=stream)
         if r.status_code == requests.codes.unauthorized:
             self._auth(r)
-            r = self._session.request(method, url, stream=stream, headers=headers)
+            r = self._session.request(method, url, headers=headers, stream=stream)
 
+        logging.debug(f'Response headers: {r.headers}')
         if r.status_code != requests.codes.ok:
+            logging.error(f'Response: {r.content}')
             r.raise_for_status()
 
         return r
 
-    def _manifests_req(self, url: str, tag: str, accept_hdr: str) -> requests.Response:
-        return self._req(urlparse.urljoin(url, f'manifests/{tag}'), headers={'Accept': accept_hdr})
+    def _manifests_req(self, url: str, tag: str, media_type: str) -> requests.Response:
+        return self._req(urlparse.urljoin(url, f'manifests/{tag}'), headers={'Accept': media_type})
 
-    def get_manifest(self, url: str, tag: str) -> requests.Response:
-        return self._manifests_req(url, tag, 'application/vnd.docker.distribution.manifest.v2+json')
+    def get_manifest_list(self, url: str, tag: str, oci: bool = False) -> requests.Response:
+        if oci:
+            mt = 'application/vnd.oci.image.manifest.v1+json'
+        else:
+            mt = 'application/vnd.docker.distribution.manifest.list.v2+json'
 
-    def get_manifest_list(self, url: str, tag: str) -> requests.Response:
-        return self._manifests_req(url, tag, 'application/vnd.docker.distribution.manifest.list.v2+json')
+        return self._manifests_req(url, tag, mt)
 
-    def get_blob(self, url: str, tag: str, stream: bool = False) -> requests.Response:
+    def get_blob(self, url: str, tag: str, media_type: str, stream: bool = False) -> requests.Response:
         if stream:
-            self._session.headers['Accept'] = 'application/vnd.docker.image.rootfs.diff.tar.gzip'
+            self._session.headers['Accept'] = media_type
         return self._req(urlparse.urljoin(url, f'blobs/{tag}'), stream=stream)
 
-    @property
-    def empty_manifest(self):
-        return [OrderedDict(
-            Config='',
-            RepoTags=[],
-            Layers=[]
-        )]
-
-    # TODO: remove last_layer arg
-    def empty_layer_json(self, *, image_os: str = 'linux', last_layer: bool = False):
-        od = OrderedDict(created="1970-01-01T00:00:00Z")
-
-        if last_layer:
-            od['container'] = ''
-
-        od['container_config'] = container_config()
-
-        if last_layer:
-            od['docker_version'] = '18.06.1-ce'
-            od['config'] = ''
-            od['architecture'] = ''
-
-        od['os'] = image_os
-
-        return od
-
-    @staticmethod
-    def parser(image: str) -> tuple:
-        registry = ''
-        tag = 'latest'
-
-        idx = image.find('/')
-        if idx > -1 and ('.' in image[:idx] or ':' in image[:idx]):
-            registry = image[:idx]
-            image = image[idx + 1:]
-
-        idx = image.find('@')
-        if idx > -1:
-            tag = image[idx + 1:]
-            image = image[:idx]
-
-        idx = image.find(':')
-        if idx > -1:
-            tag = image[idx + 1:]
-            image = image[:idx]
-
-        idx = image.find('/')
-        if idx == -1 and registry == '':
-            image = 'library/' + image
-
-        return registry or DOCKER_REGISTRY_HOST, image, tag
-
-    def _get_layer(self, url, layer_digest, diff_id, output_file):
+    def _get_layer(self, url, layer_digest, media_type, diff_id, output_file):
         gziped_file = f'{output_file}.gz'
         layer_id_short = layer_digest[7:19]
 
@@ -514,7 +497,7 @@ class ImageFetcher:
         else:
             open_file_mode = 'wb'
 
-        r = self.get_blob(url, layer_digest, stream=True)
+        r = self.get_blob(url, layer_digest, media_type, stream=True)
         logging.debug(f'Blob headers: {layer_digest}: {r.headers}')
 
         content_length = int(r.headers.get('Content-Length', 0))
@@ -551,11 +534,13 @@ class ImageFetcher:
         os.remove(gziped_file)
         print("\r{}: Pull complete {}".format(layer_id_short, " " * 100), flush=True)
 
-    def pull(self, image: str, arch: str = 'amd64'):
-        tag_digest = None
-        image_os = 'linux'
+    def pull(self, image: str, image_platform: str):
+        if image_platform:
+            image_os, image_arch = image_platform.split('/')
+        else:
+            image_os, image_arch = 'linux', platform.machine()
 
-        reg, ns, tag = self.parser(image)
+        reg, ns, tag = image_name_parser(image)
         url = self._make_url(reg, ns)
 
         print(f'{tag}: Pulling from {ns}')
@@ -563,18 +548,21 @@ class ImageFetcher:
         manifests_list_data = manifests_list.json()
         logging.debug(f'Manifest list headers: {manifests_list.headers}')
 
+        tag_digest = None
+        media_type = 'application/vnd.docker.distribution.manifest.v2+json'
         for manifest in manifests_list_data.get('manifests', []):
-            if manifest['platform']['architecture'] == arch:
+            if manifest['platform']['architecture'] == image_arch:
                 tag_digest = manifest['digest']
-                image_os = manifest['platform']['os']
+                media_type = manifest['mediaType']
                 break
 
-        image_manifest_res = self.get_manifest(url, tag_digest or tag)
+        image_manifest_res = self._manifests_req(url, tag_digest or tag, media_type)
         logging.debug(f'Image manifest headers: {tag_digest or tag}: {image_manifest_res.headers}')
         image_manifest = image_manifest_res.json()
+        logging.debug(image_manifest)
 
         image_id = image_manifest['config']['digest']
-        image_name = '{}_{}'.format(ns.replace('/', '_'), tag.replace(':', '_'))
+        image_name = '{}_{}_{}'.format(ns.replace('/', '_'), image_arch, tag.replace(':', '_'))
         tmp_dir = f'{image_name}.tmp'
 
         config_filename = f'{image_id[7:]}.json'
@@ -582,12 +570,12 @@ class ImageFetcher:
 
         saver = FileExporter(tmp_dir)
 
-        image_config = self.get_blob(url, image_id)
+        image_config = self.get_blob(url, image_id, media_type)
         logging.debug(f'Image config headers: {image_id}: {image_config.headers}')
         with saver(config_filename) as f:
             f.write(image_config.content)
 
-        image_config = image_config.json(object_pairs_hook=OrderedDict, cls=JSONDecoderRawString)
+        image_config = image_config.json()
         diff_ids = image_config['rootfs']['diff_ids']
 
         layers = image_manifest['layers']
@@ -595,47 +583,47 @@ class ImageFetcher:
             raise Exception("The number of layers is not equal to the number of diff_ids")
 
         chain_ids_list = chain_ids(diff_ids)
-        v1_layer_ids_list = v1_layers_ids(chain_ids_list, image_config)
+        v1_layer_ids_list = layer_ids_list(chain_ids_list, image_config)
 
-        man = self.empty_manifest
-        man[0]['Config'] = config_filename
-        man[0]['RepoTags'].append(f'{image_repo}:{tag}')
+        m0 = Manifest(Config=config_filename)
+        m0.RepoTags.append(f'{image_repo}:{tag}')
 
-        v1_layer_id = ''
-        parent_id = ''
+        v1_layer_id = None
+        parent_id = None
         for i, layer_info in enumerate(layers):
-            last_layer = layer_info == layers[-1]
             v1_layer_id = v1_layer_ids_list[i][7:]
 
-            man[0]['Layers'].append(f'{v1_layer_id}/layer.tar')
+            m0.Layers.append(f'{v1_layer_id}/layer.tar')
             layer_tar = saver.path_join(v1_layer_id, 'layer.tar')
 
-            self._get_layer(url, layer_info['digest'], diff_ids[i], layer_tar)
+            self._get_layer(url, layer_info['digest'], layer_info['mediaType'], diff_ids[i], layer_tar)
 
-            layer_json = OrderedDict(id=v1_layer_id)
-            if parent_id:
-                layer_json['parent'] = parent_id
+            v1_layer_info = V1Image(
+                id=v1_layer_id,
+                parent=parent_id,
+                os=image_os
+            )
 
-            layer_json.update(self.empty_layer_json(image_os=image_os, last_layer=last_layer))
-
-            if last_layer:
-                layer_json.update(image_config)
-
-                del layer_json['history']
-                del layer_json['rootfs']
+            if layer_info == layers[-1]:
+                v1_layer_info.update(**image_config)
+            else:
+                v1_layer_info.container_config = ContainerConfig()
 
             with saver(v1_layer_id, "json") as f:
-                f.write(json.dumps(layer_json, separators=JSON_SEPARATOR, ensure_ascii=False).replace(r'\\u', r'\u'))
+                f.write(v1_layer_info.json)
 
             with saver(v1_layer_id, "VERSION") as f:
                 f.write("1.0")
 
             parent_id = v1_layer_id
 
-        print('Digest:', image_manifest_res.headers.get('Docker-Content-Digest'))
+        print('Digest:', image_manifest_res.headers.get('Docker-Content-Digest'), "\n")
+
+        images_manifest_list = ManifestList()
+        images_manifest_list.manifests.append(m0)
 
         with saver("manifest.json") as f:
-            f.write(json.dumps(man, separators=JSON_SEPARATOR))
+            f.write(images_manifest_list.json)
             f.write('\n')
 
         with saver("repositories") as f:
@@ -644,6 +632,8 @@ class ImageFetcher:
 
         with TarFile.open(f'{image_name}.tar', 'w', remove_src_dir=not self._save_cache) as tar:
             tar.add(tmp_dir, created=image_config['created'])
+
+        os.chmod(f'{image_name}.tar', 0o600)
 
 
 if __name__ == '__main__':
@@ -656,15 +646,20 @@ if __name__ == '__main__':
                         help="Do not delete the temp folder after downloading the image")
     parser.add_argument('--verbose', '-v', action='store_true', help="Enable verbose output")
     parser.add_argument('--user', '-u', type=str, help="Registry login")
+    # TODO: not implemented
+    # parser.add_argument('--oci', action='store_true', help="Use OCI Image Spec")
+    parser.add_argument('--platform', type=str, help="Set platform if server is multi-platform capable")
     grp = parser.add_mutually_exclusive_group()
     grp.add_argument('--password', '-p', type=str, help="Registry password")
     grp.add_argument('-P', action='store_true', help="Registry password (interactive)")
-    arg = parser.parse_args()
+    arg = vars(parser.parse_args())
 
-    password = arg.password
-    if arg.P:
-        password = getpass.getpass()
+    if arg.pop('P'):
+        arg['password'] = getpass.getpass()
 
-    p = ImageFetcher(user=arg.user, password=password, verbose=arg.verbose, save_cache=arg.save_cache)
-    for img in arg.image:
-        p.pull(img)
+    img_list = arg.pop('image')
+    img_platform = arg.pop('platform')
+
+    p = ImageFetcher(**arg)
+    for img in img_list:
+        p.pull(img, img_platform)

@@ -1,7 +1,6 @@
 # docker_pull
 The script makes it possible to download a docker-image without docker
 
-!!! Not working with v1 registry
 ## Use
 ```bash
 > git clone https://github.com/myback/docker_pull.git
