@@ -244,7 +244,6 @@ def progress_bar(description, content_length, done, progressbar_length=50):
                                                          sizeof_fmt(content_length),
                                                          length=progressbar_length)
 
-    print("\r", end='')
     print(progress_bar_str, end='', flush=True)
     print(" " * len(progress_bar_str) + "\r", end='')
 
