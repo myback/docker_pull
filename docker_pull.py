@@ -431,8 +431,7 @@ class ImageFetcher:
         return urlparse.urlunsplit(('https' if self._ssl else 'http', registry, f'/v2/{ns}/', None, None))
 
     def _auth(self, resp: requests.Response):
-        if self._session.headers.get('Authorization'):
-            del self._session.headers['Authorization']
+        self._session.headers.pop('Authorization', '')
 
         auth = requests.auth.HTTPBasicAuth(self._user, self._password) if self._user else None
 

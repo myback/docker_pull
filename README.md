@@ -1,6 +1,8 @@
 # docker_pull
 The script makes it possible to download a docker-image without docker
 
+Required Python 3.7+
+
 ## Use
 ```bash
 > git clone https://github.com/myback/docker_pull.git
