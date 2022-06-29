@@ -466,13 +466,8 @@ class ImageFetcher:
     def _manifests_req(self, url: str, tag: str, media_type: str) -> requests.Response:
         return self._req(urlparse.urljoin(url, f'manifests/{tag}'), headers={'Accept': media_type})
 
-    def get_manifest_list(self, url: str, tag: str, oci: bool = False) -> requests.Response:
-        if oci:
-            mt = 'application/vnd.oci.image.manifest.v1+json'
-        else:
-            mt = 'application/vnd.docker.distribution.manifest.list.v2+json'
-
-        return self._manifests_req(url, tag, mt)
+    def get_manifest_list(self, url: str, tag: str) -> requests.Response:
+        return self._manifests_req(url, tag, 'application/vnd.docker.distribution.manifest.list.v2+json')
 
     def get_blob(self, url: str, tag: str, media_type: str, stream: bool = False) -> requests.Response:
         if stream:
@@ -644,8 +639,6 @@ if __name__ == '__main__':
                         help="Do not delete the temp folder after downloading the image")
     parser.add_argument('--verbose', '-v', action='store_true', help="Enable verbose output")
     parser.add_argument('--user', '-u', type=str, help="Registry login")
-    # TODO: not implemented
-    # parser.add_argument('--oci', action='store_true', help="Use OCI Image Spec")
     parser.add_argument('--platform', type=str, help="Set platform if server is multi-platform capable")
     grp = parser.add_mutually_exclusive_group()
     grp.add_argument('--password', '-p', type=str, help="Registry password")
