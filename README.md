@@ -9,7 +9,7 @@ Required Python 3.7+
 > cd docker_pull
 > chmod +x docker_pull.py
 > ./docker_pull.py -h
-usage: docker_pull.py [-h] [--save-cache] [--verbose] [--user USER] [--password PASSWORD]
+usage: docker_pull.py [-h] [--save-cache] [--verbose] [--user USER] [--platform PLATFORM] [--password PASSWORD | -P]
                       image [image ...]
 
 positional arguments:
@@ -20,8 +20,9 @@ optional arguments:
   --save-cache, -s                  Do not delete the temp folder after downloading the image
   --verbose, -v                     Enable verbose output
   --user USER, -u USER              Registry login
+  --platform PLATFORM               Set platform if server is multi-platform capable
   --password PASSWORD, -p PASSWORD  Registry password
->
+  -P                                Registry password (interactive)
 > ./docker_pull.py alpine:3.10
 3.10: Pulling from library/alpine
 21c83c524219: Pull complete
