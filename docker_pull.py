@@ -197,21 +197,18 @@ def image_name_parser(image: str) -> tuple:
     return registry or DOCKER_REGISTRY_HOST, image, tag
 
 
-def www_auth(hdr: str) -> dict:
-    ret = {}
+def www_auth(hdr: str) -> (str, dict):
+    auth_scheme, info = hdr.split(' ', 1)
 
-    auth_type, info = hdr.split(' ', 1)
-    auth_type = auth_type.lower()
-    ret[auth_type] = {}
-
+    out = {}
     for part in info.split(','):
         k, v = part.split('=', 1)
-        ret[auth_type][k] = v.lower().replace('"', '')
+        out[k] = v.replace('"', '').strip()
 
-    return ret
+    return auth_scheme, out
 
 
-def sha256sum(filename, chunk_size=16384):
+def sha256sum(filename, chunk_size=131072):
     h = hashlib.sha256()
     with open(filename, 'rb', buffering=0) as f:
         while 1:
@@ -435,20 +432,23 @@ class ImageFetcher:
 
         auth = requests.auth.HTTPBasicAuth(self._user, self._password) if self._user else None
 
-        parsed = www_auth(resp.headers['www-authenticate'])
-        url_parts = list(urlparse.urlparse(parsed['bearer']['realm']))
-        query = urlparse.parse_qs(url_parts[4])
-        query.update(service=parsed['bearer']['service'])
+        if not resp.headers['www-authenticate']:
+            raise ValueError("empty the www-authenticate header")
 
-        if 'scope' in parsed['bearer']:
-            query.update(scope=parsed['bearer']['scope'])
+        auth_scheme, parsed = www_auth(resp.headers['www-authenticate'])
+        url_parts = list(urlparse.urlparse(parsed['realm']))
+        query = urlparse.parse_qs(url_parts[4])
+        query.update(service=parsed['service'])
+
+        if 'scope' in parsed:
+            query.update(scope=parsed['scope'])
 
         url_parts[4] = urlparse.urlencode(query, True)
 
         r = self._session.get(urlparse.urlunparse(url_parts), auth=auth)
         r.raise_for_status()
 
-        self._session.headers.update(Authorization=f"Bearer {r.json()['token']}")
+        self._session.headers.update(Authorization=f"{auth_scheme} {r.json()['token']}")
 
     def _req(self, url, *, method='GET', headers: dict = None, stream: bool = None):
         r = self._session.request(method, url, headers=headers, stream=stream)
@@ -632,14 +632,15 @@ class ImageFetcher:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         prog='docker_pull.py',
-        formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=36, width=93))
+        formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=36, width=120))
 
     parser.add_argument('image', nargs='+')
     parser.add_argument('--save-cache', '-s', action='store_true',
                         help="Do not delete the temp folder after downloading the image")
     parser.add_argument('--verbose', '-v', action='store_true', help="Enable verbose output")
     parser.add_argument('--user', '-u', type=str, help="Registry login")
-    parser.add_argument('--platform', type=str, help="Set platform if server is multi-platform capable")
+    parser.add_argument('--platform', type=str, default='linux/amd64',
+                        help="Set platform if server is multi-platform capable")
     grp = parser.add_mutually_exclusive_group()
     grp.add_argument('--password', '-p', type=str, help="Registry password")
     grp.add_argument('-P', action='store_true', help="Registry password (interactive)")
