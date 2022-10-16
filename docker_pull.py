@@ -9,13 +9,12 @@ import hashlib
 import json
 import logging
 import os
-import platform
+import platform as os_platform
 import shutil
 import struct
 import tarfile
-import typing
 import urllib.parse as urlparse
-from typing import List
+from typing import AnyStr, List, Tuple
 
 import requests
 import requests.auth
@@ -23,6 +22,64 @@ from dateutil.parser import parse as date_parse
 
 JSON_SEPARATOR = (',', ':')
 DOCKER_REGISTRY_HOST = 'registry-1.docker.io'
+
+
+def raw_scanstring(s, end, strict=True, _b=json.decoder.BACKSLASH, _m=json.decoder.STRINGCHUNK.match):
+    """Scan the string s for a JSON string. End is the index of the
+    character in s after the quote that started the JSON string.
+    Unescapes all valid JSON string escape sequences and raises ValueError
+    on attempt to decode an invalid string. If strict is False then literal
+    control characters are allowed in the string.
+    Returns a tuple of the decoded string and the index of the character in s
+    after the end quote."""
+    chunks = []
+    _append = chunks.append
+    begin = end - 1
+    while 1:
+        chunk = _m(s, end)
+        if chunk is None:
+            raise json.JSONDecodeError("Unterminated string starting at", s, begin)
+        end = chunk.end()
+        content, terminator = chunk.groups()
+        # Content is contains zero or more unescaped string characters
+        if content:
+            _append(content)
+        # Terminator is the end of string, a literal control character,
+        # or a backslash denoting that an escape sequence follows
+        if terminator == '"':
+            break
+        elif terminator != '\\':
+            if strict:
+                msg = "Invalid control character {0!r} at".format(terminator)
+                raise json.JSONDecodeError(msg, s, end)
+            else:
+                _append(terminator)
+                continue
+        try:
+            esc = s[end]
+        except IndexError:
+            raise json.JSONDecodeError("Unterminated string starting at", s, begin)
+        # If not a unicode escape sequence, must be in the lookup table
+        if esc != 'u':
+            try:
+                char = _b[esc]
+            except KeyError:
+                msg = "Invalid \\escape: {0!r}".format(esc)
+                raise json.JSONDecodeError(msg, s, end)
+            end += 1
+        else:
+            st = end - 1
+            end += 5
+            char = s[st:end]
+        _append(char)
+    return ''.join(chunks), end
+
+
+class JSONDecoderRawString(json.JSONDecoder):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.parse_string = raw_scanstring
+        self.scan_once = json.scanner.py_make_scanner(self)
 
 
 @dataclasses.dataclass
@@ -56,7 +113,7 @@ class StructClasses:
             if field.metadata.get('omitempty') and d[field.name] is None:
                 del d[field.name]
 
-        return json.dumps(d, separators=JSON_SEPARATOR, ensure_ascii=False).replace(r'\\u', r'\u')
+        return json.dumps(d, separators=JSON_SEPARATOR).replace(r'\\u', r'\u')
 
     def update(self, **kwargs):
         for k, v in kwargs.items():
@@ -129,7 +186,7 @@ class ManifestList:
         return json.dumps(r, separators=JSON_SEPARATOR, ensure_ascii=False)
 
 
-def chain_ids(ids_list: list) -> list:
+def chain_ids(ids_list: list) -> List[str]:
     chain = list()
     chain.append(ids_list[0])
 
@@ -145,13 +202,11 @@ def chain_ids(ids_list: list) -> list:
     return chain
 
 
-def layer_ids_list(chain_ids_list: list, config_image: dict):
+def layer_ids_list(chain_ids_list: list, config_image: dict) -> List[str]:
+    config_image.pop('id', '')
+
     chan_ids = []
     parent = None
-
-    if 'id' in config_image:
-        del config_image['id']
-
     _info = dict(sorted(config_image.items()))
     for chain_id in chain_ids_list:
         config = LayerConfig(layer_id=chain_id, parent=parent)
@@ -171,7 +226,7 @@ def layer_ids_list(chain_ids_list: list, config_image: dict):
     return chan_ids
 
 
-def image_name_parser(image: str) -> tuple:
+def image_name_parser(image: str) -> Tuple[str, str, str]:
     registry = ''
     tag = 'latest'
 
@@ -197,7 +252,7 @@ def image_name_parser(image: str) -> tuple:
     return registry or DOCKER_REGISTRY_HOST, image, tag
 
 
-def www_auth(hdr: str) -> (str, dict):
+def www_auth(hdr: str) -> Tuple[str, dict]:
     auth_scheme, info = hdr.split(' ', 1)
 
     out = {}
@@ -208,7 +263,7 @@ def www_auth(hdr: str) -> (str, dict):
     return auth_scheme, out
 
 
-def sha256sum(filename, chunk_size=131072):
+def sha256sum(filename, chunk_size=131072) -> str:
     h = hashlib.sha256()
     with open(filename, 'rb', buffering=0) as f:
         while 1:
@@ -219,7 +274,7 @@ def sha256sum(filename, chunk_size=131072):
     return h.hexdigest()
 
 
-def sizeof_fmt(num):
+def sizeof_fmt(num) -> str:
     for unit in ['B', 'KiB', 'MiB', 'GiB']:
         if abs(num) < 1024:
             return f'{num:3.1f}{unit}'
@@ -245,6 +300,14 @@ def progress_bar(description, content_length, done, progressbar_length=50):
     print(" " * len(progress_bar_str) + "\r", end='')
 
 
+def image_platform(s: str) -> Tuple[str, str]:
+    _os, arch = 'linux', os_platform.machine()
+    if s:
+        _os, arch = s.split('/')
+
+    return _os, arch
+
+
 class FileExporter:
     def __init__(self, temp_dir, work_dir='.'):
         self._path = os.path.join(work_dir, temp_dir)
@@ -262,18 +325,18 @@ class FileExporter:
     def path_join(self, *args):
         file_path = os.path.join(self.path, *args)
         if os.path.isdir(file_path):
-            raise Exception(f'Path {file_path} is a directory')
+            raise ValueError(f'Path {file_path} is a directory')
 
         layer_dir = os.path.dirname(file_path)
         if os.path.exists(layer_dir):
             if not os.path.isdir(layer_dir):
-                raise Exception(f'Path {layer_dir} is existing file not directory')
+                raise ValueError(f'Path {layer_dir} is existing file not directory')
         else:
             os.makedirs(layer_dir, exist_ok=True)
 
         return file_path
 
-    def write(self, s: typing.AnyStr):
+    def write(self, s: AnyStr):
         if isinstance(s, str) and 'w' in self.fd.mode:
             s = s.encode()
 
@@ -416,8 +479,7 @@ class ImageFetcher:
     def __init__(self, *, user: str = None, password: str = None, ssl: bool = True, verbose: bool = False,
                  save_cache: bool = False):
         self._ssl = ssl
-        self._user = user
-        self._password = password
+        self._credentials = requests.auth.HTTPBasicAuth(user, password) if user else None
         self._session = requests.Session()
         self._save_cache = save_cache
 
@@ -430,9 +492,7 @@ class ImageFetcher:
     def _auth(self, resp: requests.Response):
         self._session.headers.pop('Authorization', '')
 
-        auth = requests.auth.HTTPBasicAuth(self._user, self._password) if self._user else None
-
-        if not resp.headers['www-authenticate']:
+        if not resp.headers.get('www-authenticate'):
             raise ValueError("empty the www-authenticate header")
 
         auth_scheme, parsed = www_auth(resp.headers['www-authenticate'])
@@ -440,64 +500,81 @@ class ImageFetcher:
         query = urlparse.parse_qs(url_parts[4])
         query.update(service=parsed['service'])
 
-        if 'scope' in parsed:
-            query.update(scope=parsed['scope'])
+        scope = parsed.get('scope')
+        if scope:
+            query.update(scope=scope)
 
         url_parts[4] = urlparse.urlencode(query, True)
 
-        r = self._session.get(urlparse.urlunparse(url_parts), auth=auth)
+        r = self._session.get(urlparse.urlunparse(url_parts), auth=self._credentials)
         r.raise_for_status()
 
         self._session.headers.update(Authorization=f"{auth_scheme} {r.json()['token']}")
 
-    def _req(self, url, *, method='GET', headers: dict = None, stream: bool = None):
-        r = self._session.request(method, url, headers=headers, stream=stream)
+    def _req(self, url, *, headers: dict = None, stream: bool = None) -> requests.Response:
+        r = self._session.get(url, headers=headers, stream=stream)
         if r.status_code == requests.codes.unauthorized:
             self._auth(r)
-            r = self._session.request(method, url, headers=headers, stream=stream)
+            r = self._session.get(url, headers=headers, stream=stream)
 
-        logging.debug(f'Response headers: {r.headers}')
         if r.status_code != requests.codes.ok:
-            logging.error(f'Response: {r.content}')
+            logging.error(f'Status code: {r.status_code}, Response: {r.content}')
             r.raise_for_status()
 
         return r
 
     def _manifests_req(self, url: str, tag: str, media_type: str) -> requests.Response:
-        return self._req(urlparse.urljoin(url, f'manifests/{tag}'), headers={'Accept': media_type})
+        r = self._req(urlparse.urljoin(url, f'manifests/{tag}'), headers={'Accept': media_type})
+        logging.debug(f'Image manifest headers: {tag}: {r.headers}')
 
-    def get_manifest_list(self, url: str, tag: str) -> requests.Response:
-        return self._manifests_req(url, tag, 'application/vnd.docker.distribution.manifest.list.v2+json')
+        return r
+
+    def get_digest_and_mediatype(self, url: str, tag: str, platform: str) -> Tuple[str, str]:
+        r = self._manifests_req(url, tag, 'application/vnd.docker.distribution.manifest.list.v2+json')
+        manifests_list_data = r.json()
+
+        _os, arch = image_platform(platform)
+        tag_digest = None
+        media_type = 'application/vnd.docker.distribution.manifest.v2+json'
+        for manifest in manifests_list_data.get('manifests', []):
+            if manifest['platform']['os'] == _os and manifest['platform']['architecture'] == arch:
+                tag_digest = manifest['digest']
+                media_type = manifest['mediaType']
+                break
+
+        return tag_digest, media_type
 
     def get_blob(self, url: str, tag: str, media_type: str, stream: bool = False) -> requests.Response:
         if stream:
             self._session.headers['Accept'] = media_type
-        return self._req(urlparse.urljoin(url, f'blobs/{tag}'), stream=stream)
+
+        r = self._req(urlparse.urljoin(url, f'blobs/{tag}'), stream=stream)
+        logging.debug(f'Blob headers: {tag}: {r.headers}')
+
+        return r
 
     def _get_layer(self, url, layer_digest, media_type, diff_id, output_file):
-        gziped_file = f'{output_file}.gz'
+        zip_file = f'{output_file}.gz'
         layer_id_short = layer_digest[7:19]
 
+        open_file_mode = 'wb'
         if os.path.exists(output_file):
-            if sha256sum(output_file) != diff_id[7:]:
-                self._session.headers['Range'] = 'bytes={}-'.format(os.path.getsize(gziped_file))
-                open_file_mode = 'ab'
-                logging.debug(f'File {output_file} is exist, resume download')
-            else:
+            if sha256sum(output_file) == diff_id[7:]:
                 print("\r{}: Pull complete {}".format(layer_id_short, " " * 100), flush=True)
                 logging.debug(f'File {output_file} is exist, download next blob')
                 return
-        else:
-            open_file_mode = 'wb'
+
+            self._session.headers['Range'] = 'bytes={}-'.format(os.path.getsize(zip_file))
+            open_file_mode = 'ab'
+            logging.debug(f'File {output_file} is exist, resume download')
 
         r = self.get_blob(url, layer_digest, media_type, stream=True)
-        logging.debug(f'Blob headers: {layer_digest}: {r.headers}')
 
-        content_length = int(r.headers.get('Content-Length', 0))
-
-        with open(gziped_file, open_file_mode) as file:
+        with open(zip_file, open_file_mode) as file:
             done = 0
             chunk_size = 8192
+            content_length = int(r.headers.get('Content-Length', 0))
+
             for chunk in r.iter_content(chunk_size=chunk_size):
                 if chunk:
                     file.write(chunk)
@@ -505,84 +582,74 @@ class ImageFetcher:
 
                     progress_bar(f"{layer_id_short}: Downloading", content_length, done)
 
-        if 'Range' in self._session.headers:
-            del self._session.headers['Range']
+        self._session.headers.pop('Range', '')
 
-        with gzip.open(gziped_file, 'rb') as gz_data, open(output_file, 'wb') as gunzip_data:
-            gz_data.myfileobj.seek(-4, 2)
-            isize = struct.unpack('I', gz_data.myfileobj.read(4))[0]
-            gz_data.myfileobj.seek(0)
+        with gzip.open(zip_file, 'rb') as zip_data, open(output_file, 'wb') as unzip_data:
+            zip_data.myfileobj.seek(-4, 2)
+            blob_size = struct.unpack('I', zip_data.myfileobj.read(4))[0]
+            zip_data.myfileobj.seek(0)
 
             done = 0
             copy_chunk = 131072
             while 1:
-                chunk = gz_data.read(copy_chunk)
+                chunk = zip_data.read(copy_chunk)
                 if not chunk:
                     break
-                gunzip_data.write(chunk)
+                unzip_data.write(chunk)
                 done += len(chunk)
 
-                progress_bar(f"{layer_id_short}: Extracting", isize, done)
+                progress_bar(f"{layer_id_short}: Extracting", blob_size, done)
 
-        os.remove(gziped_file)
+        os.remove(zip_file)
         print("\r{}: Pull complete {}".format(layer_id_short, " " * 100), flush=True)
 
-    def pull(self, image: str, image_platform: str):
-        if image_platform:
-            image_os, image_arch = image_platform.split('/')
-        else:
-            image_os, image_arch = 'linux', platform.machine()
-
+    def pull(self, image: str, platform: str):
+        image_os, image_arch = image_platform(platform)
         reg, ns, tag = image_name_parser(image)
+
         url = self._make_url(reg, ns)
 
         print(f'{tag}: Pulling from {ns}')
-        manifests_list = self.get_manifest_list(url, tag)
-        manifests_list_data = manifests_list.json()
-        logging.debug(f'Manifest list headers: {manifests_list.headers}')
+        # Get image digest and media_type for platform from manifest list
+        tag_digest, media_type = self.get_digest_and_mediatype(url, tag, platform)
 
-        tag_digest = None
-        media_type = 'application/vnd.docker.distribution.manifest.v2+json'
-        for manifest in manifests_list_data.get('manifests', []):
-            if manifest['platform']['architecture'] == image_arch:
-                tag_digest = manifest['digest']
-                media_type = manifest['mediaType']
-                break
+        # Get image manifest
+        image_manifest_resp = self._manifests_req(url, tag_digest or tag, media_type)
+        image_manifest = image_manifest_resp.json()
 
-        image_manifest_res = self._manifests_req(url, tag_digest or tag, media_type)
-        logging.debug(f'Image manifest headers: {tag_digest or tag}: {image_manifest_res.headers}')
-        image_manifest = image_manifest_res.json()
-        logging.debug(image_manifest)
+        if image_manifest['schemaVersion'] == 1:
+            raise NotImplementedError("not implemented for schema version 1")
 
-        image_id = image_manifest['config']['digest']
-        image_name = '{}_{}_{}'.format(ns.replace('/', '_'), image_arch, tag.replace(':', '_'))
-        tmp_dir = f'{image_name}.tmp'
+        # Get image config
+        image_digest = image_manifest['config']['digest']
+        image_config_resp = self.get_blob(url, image_digest, media_type)
 
-        config_filename = f'{image_id[7:]}.json'
-        image_repo = ns.replace('library/', '') if ns.startswith('library/') and reg == DOCKER_REGISTRY_HOST else ns
+        # Generate name for temporary dir
+        filename = f"{ns.replace('/', '_')}_{image_arch}_{tag.replace(':', '_')}"
+        tmp_dir = f'{filename}.tmp'
 
         saver = FileExporter(tmp_dir)
 
-        image_config = self.get_blob(url, image_id, media_type)
-        logging.debug(f'Image config headers: {image_id}: {image_config.headers}')
+        # Save image config
+        config_filename = f'{image_digest[7:]}.json'
         with saver(config_filename) as f:
-            f.write(image_config.content)
+            f.write(image_config_resp.content)
 
-        image_config = image_config.json()
-        diff_ids = image_config['rootfs']['diff_ids']
-
-        layers = image_manifest['layers']
-        if len(layers) != len(diff_ids):
-            raise Exception("The number of layers is not equal to the number of diff_ids")
+        # Calculate chain ids from layers diff_ids
+        image_config_data = image_config_resp.json(cls=JSONDecoderRawString)
+        diff_ids = image_config_data['rootfs']['diff_ids']
 
         chain_ids_list = chain_ids(diff_ids)
-        v1_layer_ids_list = layer_ids_list(chain_ids_list, image_config)
+        v1_layer_ids_list = layer_ids_list(chain_ids_list, image_config_data)
 
+        # Fetch all layers with metadata
         m0 = Manifest(Config=config_filename)
+        image_repo = ns.removeprefix('library/') if ns.startswith('library/') and reg == DOCKER_REGISTRY_HOST else ns
         m0.RepoTags.append(f'{image_repo}:{tag}')
 
         v1_layer_id = None
         parent_id = None
+        layers = image_manifest['layers']
         for i, layer_info in enumerate(layers):
             v1_layer_id = v1_layer_ids_list[i][7:]
 
@@ -598,7 +665,7 @@ class ImageFetcher:
             )
 
             if layer_info == layers[-1]:
-                v1_layer_info.update(**image_config)
+                v1_layer_info.update(**image_config_data)
             else:
                 v1_layer_info.container_config = ContainerConfig()
 
@@ -610,23 +677,23 @@ class ImageFetcher:
 
             parent_id = v1_layer_id
 
-        print('Digest:', image_manifest_res.headers.get('Docker-Content-Digest'), "\n")
+        print('Digest:', image_manifest_resp.headers.get('Docker-Content-Digest'), "\n")
 
         images_manifest_list = ManifestList()
         images_manifest_list.manifests.append(m0)
-
         with saver("manifest.json") as f:
-            f.write(images_manifest_list.json)
-            f.write('\n')
+            f.write(images_manifest_list.json + '\n')
 
         with saver("repositories") as f:
-            f.write(json.dumps({image_repo: {tag: v1_layer_id}}, separators=JSON_SEPARATOR))
+            d = {image_repo: {tag: v1_layer_id}}
+            f.write(json.dumps(d, separators=JSON_SEPARATOR))
             f.write('\n')
 
-        with TarFile.open(f'{image_name}.tar', 'w', remove_src_dir=not self._save_cache) as tar:
-            tar.add(tmp_dir, created=image_config['created'])
+        # Save layers with metadata to tar file
+        with TarFile.open(f'{filename}.tar', 'w', remove_src_dir=not self._save_cache) as tar:
+            tar.add(tmp_dir, created=image_config_data['created'])
 
-        os.chmod(f'{image_name}.tar', 0o600)
+        os.chmod(f'{filename}.tar', 0o600)
 
 
 if __name__ == '__main__':
