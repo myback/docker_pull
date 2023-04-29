@@ -18,7 +18,6 @@ from typing import AnyStr, List, Tuple
 
 import requests
 import requests.auth
-from dateutil.parser import parse as date_parse
 
 JSON_SEPARATOR = (',', ':')
 DOCKER_REGISTRY_HOST = 'registry-1.docker.io'
@@ -82,52 +81,73 @@ class JSONDecoderRawString(json.JSONDecoder):
         self.scan_once = json.scanner.py_make_scanner(self)
 
 
-@dataclasses.dataclass
-class ContainerConfig:
-    Hostname: str = ''
-    Domainname: str = ''
-    User: str = ''
-    AttachStdin: bool = False
-    AttachStdout: bool = False
-    AttachStderr: bool = False
-    Tty: bool = False
-    OpenStdin: bool = False
-    StdinOnce: bool = False
-    Env: list = None
-    Cmd: list = None
-    Image: str = ''
-    Volumes: list = None
-    WorkingDir: str = ''
-    Entrypoint: list = None
-    OnBuild: list = None
-    Labels: dict = None
-
-
-@dataclasses.dataclass
+@dataclasses.dataclass(order=True)
 class StructClasses:
     @property
     def json(self) -> str:
-        d = dataclasses.asdict(self)
+        return json.dumps(self.omitempty_data, separators=JSON_SEPARATOR).replace(r'\\u', r'\u')
 
+    @property
+    def omitempty_data(self) -> dict:
+        d = dataclasses.asdict(self)
         for field in dataclasses.fields(self):
-            if field.metadata.get('omitempty') and d[field.name] is None:
+            if dataclasses.is_dataclass(field.type):
+                o = getattr(self, field.name)
+                if o is not None:
+                    d[field.name] = o.omitempty_data
+
+            if field.metadata.get('omitempty') and not d[field.name]:
                 del d[field.name]
 
-        return json.dumps(d, separators=JSON_SEPARATOR).replace(r'\\u', r'\u')
+        return d
 
-    def update(self, **kwargs):
+    def _update(self, o, **kwargs):
         for k, v in kwargs.items():
-            if hasattr(self, k):
-                setattr(self, k, v)
+            if hasattr(o, k):
+                _o = getattr(o, k)
+                if dataclasses.is_dataclass(_o):
+                    _v = type(_o)()
+                    self._update(_v, **v)
+                    v = _v
+
+                setattr(o, k, v)
+
+    def deepcopy(self, **kwargs):
+        self._update(self, **kwargs)
+
+
+@dataclasses.dataclass
+class ImageConfig(StructClasses):
+    Hostname: str = dataclasses.field(default='')
+    Domainname: str = dataclasses.field(default='')
+    User: str = dataclasses.field(default='')
+    AttachStdin: bool = dataclasses.field(default=False)
+    AttachStdout: bool = dataclasses.field(default=False)
+    AttachStderr: bool = dataclasses.field(default=False)
+    ExposedPorts: dict = dataclasses.field(default=None, metadata={'omitempty': True})
+    Tty: bool = dataclasses.field(default=False)
+    OpenStdin: bool = dataclasses.field(default=False)
+    StdinOnce: bool = dataclasses.field(default=False)
+    Env: list = dataclasses.field(default=None)
+    Cmd: list = dataclasses.field(default=None)
+    ArgsEscaped: bool = dataclasses.field(default=False, metadata={'omitempty': True})
+    Image: str = dataclasses.field(default='')
+    Volumes: list = dataclasses.field(default=None)
+    WorkingDir: str = dataclasses.field(default='')
+    Entrypoint: list = dataclasses.field(default=None)
+    OnBuild: list = dataclasses.field(default=None)
+    Labels: dict = dataclasses.field(default=None)
+    StopSignal: str = dataclasses.field(default='', metadata={'omitempty': True})
+    Shell: list = dataclasses.field(default=None, metadata={'omitempty': True})
 
 
 @dataclasses.dataclass
 class LayerConfig(StructClasses):
     architecture: str = dataclasses.field(default=None, metadata={'omitempty': True})
     comment: str = dataclasses.field(default=None, metadata={'omitempty': True})
-    config: ContainerConfig = dataclasses.field(default=None, metadata={'omitempty': True})
+    config: ImageConfig = dataclasses.field(default=None, metadata={'omitempty': True})
     container: str = dataclasses.field(default=None, metadata={'omitempty': True})
-    container_config: ContainerConfig = dataclasses.field(default=None, metadata={'omitempty': True})
+    container_config: ImageConfig = dataclasses.field(default=None, metadata={'omitempty': True})
     created: str = '1970-01-01T00:00:00Z'
     docker_version: str = dataclasses.field(default=None, metadata={'omitempty': True})
     layer_id: str = None
@@ -142,10 +162,10 @@ class V1Image(StructClasses):
     comment: str = dataclasses.field(default=None, metadata={'omitempty': True})
     created: str = '1970-01-01T00:00:00Z'
     container: str = dataclasses.field(default=None, metadata={'omitempty': True})
-    container_config: ContainerConfig = dataclasses.field(default=None, metadata={'omitempty': True})
+    container_config: ImageConfig = dataclasses.field(default=None, metadata={'omitempty': True})
     docker_version: str = dataclasses.field(default=None, metadata={'omitempty': True})
     author: str = dataclasses.field(default=None, metadata={'omitempty': True})
-    config: ContainerConfig = dataclasses.field(default=None, metadata={'omitempty': True})
+    config: ImageConfig = dataclasses.field(default=None, metadata={'omitempty': True})
     architecture: str = dataclasses.field(default=None, metadata={'omitempty': True})
     variant: str = dataclasses.field(default=None, metadata={'omitempty': True})
     os: str = dataclasses.field(default='linux', metadata={'omitempty': True})
@@ -207,18 +227,13 @@ def layer_ids_list(chain_ids_list: list, config_image: dict) -> List[str]:
 
     chan_ids = []
     parent = None
-    _info = dict(sorted(config_image.items()))
     for chain_id in chain_ids_list:
         config = LayerConfig(layer_id=chain_id, parent=parent)
 
+        config.container_config = ImageConfig()
         if chain_id == chain_ids_list[-1]:
-            del _info['history']
-            del _info['rootfs']
-
-            config.update(**_info)
-
-        else:
-            config.container_config = ContainerConfig()
+            config.config = ImageConfig()
+            config.deepcopy(**config_image)
 
         parent = "sha256:" + hashlib.sha256(config.json.encode()).hexdigest()
         chan_ids.append(parent)
@@ -252,6 +267,26 @@ def image_name_parser(image: str) -> Tuple[str, str, str]:
     return registry or DOCKER_REGISTRY_HOST, image, tag
 
 
+def date_parse(s: str) -> datetime.datetime:
+    layout = '%Y-%m-%dT%H:%M:%S.%f%z'
+
+    # remove Z at the end of the line
+    if s.endswith('Z'):
+        s = s[:-1]
+
+    nano_s = 0
+    datetime_parts = s.split('.')
+    if len(datetime_parts) == 2:
+        nano_s = datetime_parts[-1]
+        # cut nanoseconds to microseconds
+        if len(nano_s) > 6:
+            nano_s = nano_s[:6]
+
+    dt = "{}.{}+00:00".format(datetime_parts[0], nano_s)
+
+    return datetime.datetime.strptime(dt, layout)
+
+
 def www_auth(hdr: str) -> Tuple[str, dict]:
     auth_scheme, info = hdr.split(' ', 1)
 
@@ -283,7 +318,11 @@ def sizeof_fmt(num) -> str:
     return f'{num:3.1f}TiB'
 
 
-def progress_bar(description, content_length, done, progressbar_length=50):
+def progress_bar(description: str, content_length: int, done: int, progressbar_length: int = 50):
+    # TODO: disable progressbar
+    if not progressbar_length:
+        return
+
     # TODO: shutil.get_terminal_size((80, 20))
     if not content_length:
         content_length = done
@@ -664,10 +703,10 @@ class ImageFetcher:
                 os=image_os
             )
 
+            v1_layer_info.container_config = ImageConfig()
             if layer_info == layers[-1]:
-                v1_layer_info.update(**image_config_data)
-            else:
-                v1_layer_info.container_config = ContainerConfig()
+                v1_layer_info.config = ImageConfig()
+                v1_layer_info.deepcopy(**image_config_data)
 
             with saver(v1_layer_id, "json") as f:
                 f.write(v1_layer_info.json)
@@ -702,6 +741,8 @@ if __name__ == '__main__':
         formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=36, width=120))
 
     parser.add_argument('image', nargs='+')
+    # TODO: add output dir argument
+    # parser.add_argument('--output', '-o', default="out", type=str, help="Output dir")
     parser.add_argument('--save-cache', '-s', action='store_true',
                         help="Do not delete the temp folder after downloading the image")
     parser.add_argument('--verbose', '-v', action='store_true', help="Enable verbose output")
