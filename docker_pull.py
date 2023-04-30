@@ -14,7 +14,7 @@ import shutil
 import struct
 import tarfile
 import urllib.parse as urlparse
-from typing import AnyStr, List, Tuple
+from typing import AnyStr
 
 import requests
 import requests.auth
@@ -117,7 +117,16 @@ class StructClasses:
 
 
 @dataclasses.dataclass
-class ImageConfig(StructClasses):
+class HealthConfig(StructClasses):
+    Test: list[str] = dataclasses.field(default_factory=list, metadata={'omitempty': True})
+    Interval: str = dataclasses.field(default='', metadata={'omitempty': True})
+    Timeout: str = dataclasses.field(default='', metadata={'omitempty': True})
+    StartPeriod: str = dataclasses.field(default='', metadata={'omitempty': True})
+    Retries: int = dataclasses.field(default=0, metadata={'omitempty': True})
+
+
+@dataclasses.dataclass
+class ContainerConfig(StructClasses):
     Hostname: str = dataclasses.field(default='')
     Domainname: str = dataclasses.field(default='')
     User: str = dataclasses.field(default='')
@@ -130,14 +139,18 @@ class ImageConfig(StructClasses):
     StdinOnce: bool = dataclasses.field(default=False)
     Env: list = dataclasses.field(default=None)
     Cmd: list = dataclasses.field(default=None)
+    Healthcheck: HealthConfig = dataclasses.field(default=None, metadata={'omitempty': True})
     ArgsEscaped: bool = dataclasses.field(default=False, metadata={'omitempty': True})
     Image: str = dataclasses.field(default='')
-    Volumes: list = dataclasses.field(default=None)
+    Volumes: dict = dataclasses.field(default=None)
     WorkingDir: str = dataclasses.field(default='')
     Entrypoint: list = dataclasses.field(default=None)
+    NetworkDisabled: bool = dataclasses.field(default=False, metadata={'omitempty': True})
+    MacAddress: str = dataclasses.field(default='', metadata={'omitempty': True})
     OnBuild: list = dataclasses.field(default=None)
     Labels: dict = dataclasses.field(default=None)
     StopSignal: str = dataclasses.field(default='', metadata={'omitempty': True})
+    StopTimeout: int = dataclasses.field(default=0, metadata={'omitempty': True})
     Shell: list = dataclasses.field(default=None, metadata={'omitempty': True})
 
 
@@ -145,12 +158,12 @@ class ImageConfig(StructClasses):
 class LayerConfig(StructClasses):
     architecture: str = dataclasses.field(default=None, metadata={'omitempty': True})
     comment: str = dataclasses.field(default=None, metadata={'omitempty': True})
-    config: ImageConfig = dataclasses.field(default=None, metadata={'omitempty': True})
+    config: ContainerConfig = dataclasses.field(default=None, metadata={'omitempty': True})
     container: str = dataclasses.field(default=None, metadata={'omitempty': True})
-    container_config: ImageConfig = dataclasses.field(default=None, metadata={'omitempty': True})
-    created: str = '1970-01-01T00:00:00Z'
+    container_config: ContainerConfig = dataclasses.field(default=None, metadata={'omitempty': True})
+    created: str = dataclasses.field(default='1970-01-01T00:00:00Z')
     docker_version: str = dataclasses.field(default=None, metadata={'omitempty': True})
-    layer_id: str = None
+    layer_id: str = dataclasses.field(default='')
     os: str = dataclasses.field(default=None, metadata={'omitempty': True})
     parent: str = dataclasses.field(default=None, metadata={'omitempty': True})
 
@@ -162,10 +175,10 @@ class V1Image(StructClasses):
     comment: str = dataclasses.field(default=None, metadata={'omitempty': True})
     created: str = '1970-01-01T00:00:00Z'
     container: str = dataclasses.field(default=None, metadata={'omitempty': True})
-    container_config: ImageConfig = dataclasses.field(default=None, metadata={'omitempty': True})
+    container_config: ContainerConfig = dataclasses.field(default=None, metadata={'omitempty': True})
     docker_version: str = dataclasses.field(default=None, metadata={'omitempty': True})
     author: str = dataclasses.field(default=None, metadata={'omitempty': True})
-    config: ImageConfig = dataclasses.field(default=None, metadata={'omitempty': True})
+    config: ContainerConfig = dataclasses.field(default=None, metadata={'omitempty': True})
     architecture: str = dataclasses.field(default=None, metadata={'omitempty': True})
     variant: str = dataclasses.field(default=None, metadata={'omitempty': True})
     os: str = dataclasses.field(default='linux', metadata={'omitempty': True})
@@ -175,27 +188,25 @@ class V1Image(StructClasses):
 @dataclasses.dataclass
 class RootFS:
     type: str
-    diff_ids: List[str] = dataclasses.field(default_factory=list, metadata={'omitempty': True})
+    diff_ids: list[str] = dataclasses.field(default_factory=list, metadata={'omitempty': True})
 
 
 @dataclasses.dataclass
 class Image(V1Image):
     rootfs: RootFS = dataclasses.field(default=None, metadata={'omitempty': True})
-    history: List[str] = dataclasses.field(default_factory=list, metadata={'omitempty': True})
-    # os.version: str  # omitempty
-    # os.features: List[str]  # omitempty
+    history: list[str] = dataclasses.field(default_factory=list, metadata={'omitempty': True})
 
 
 @dataclasses.dataclass
 class Manifest:
     Config: str = ''
-    RepoTags: List[str] = dataclasses.field(default_factory=list)
-    Layers: List[str] = dataclasses.field(default_factory=list)
+    RepoTags: list[str] = dataclasses.field(default_factory=list)
+    Layers: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
 class ManifestList:
-    manifests: List[Manifest] = dataclasses.field(default_factory=list)
+    manifests: list[Manifest] = dataclasses.field(default_factory=list)
 
     @property
     def json(self) -> str:
@@ -206,7 +217,7 @@ class ManifestList:
         return json.dumps(r, separators=JSON_SEPARATOR, ensure_ascii=False)
 
 
-def chain_ids(ids_list: list) -> List[str]:
+def chain_ids(ids_list: list) -> list[str]:
     chain = list()
     chain.append(ids_list[0])
 
@@ -222,7 +233,7 @@ def chain_ids(ids_list: list) -> List[str]:
     return chain
 
 
-def layer_ids_list(chain_ids_list: list, config_image: dict) -> List[str]:
+def layer_ids_list(chain_ids_list: list, config_image: dict) -> list[str]:
     config_image.pop('id', '')
 
     chan_ids = []
@@ -230,9 +241,9 @@ def layer_ids_list(chain_ids_list: list, config_image: dict) -> List[str]:
     for chain_id in chain_ids_list:
         config = LayerConfig(layer_id=chain_id, parent=parent)
 
-        config.container_config = ImageConfig()
+        config.container_config = ContainerConfig()
         if chain_id == chain_ids_list[-1]:
-            config.config = ImageConfig()
+            config.config = ContainerConfig()
             config.deepcopy(**config_image)
 
         parent = "sha256:" + hashlib.sha256(config.json.encode()).hexdigest()
@@ -241,7 +252,7 @@ def layer_ids_list(chain_ids_list: list, config_image: dict) -> List[str]:
     return chan_ids
 
 
-def image_name_parser(image: str) -> Tuple[str, str, str]:
+def image_name_parser(image: str) -> tuple[str, str, str]:
     registry = ''
     tag = 'latest'
 
@@ -287,7 +298,7 @@ def date_parse(s: str) -> datetime.datetime:
     return datetime.datetime.strptime(dt, layout)
 
 
-def www_auth(hdr: str) -> Tuple[str, dict]:
+def www_auth(hdr: str) -> tuple[str, dict]:
     auth_scheme, info = hdr.split(' ', 1)
 
     out = {}
@@ -305,7 +316,7 @@ def sha256sum(filename, chunk_size=131072) -> str:
             chunk = memoryview(f.read(chunk_size))
             if not chunk:
                 break
-            h.update(chunk)
+            h.update(memoryview(chunk))
     return h.hexdigest()
 
 
@@ -339,7 +350,7 @@ def progress_bar(description: str, content_length: int, done: int, progressbar_l
     print(" " * len(progress_bar_str) + "\r", end='')
 
 
-def image_platform(s: str) -> Tuple[str, str]:
+def image_platform(s: str) -> tuple[str, str]:
     _os, arch = 'linux', os_platform.machine()
     if s:
         _os, arch = s.split('/')
@@ -568,7 +579,7 @@ class ImageFetcher:
 
         return r
 
-    def get_digest_and_mediatype(self, url: str, tag: str, platform: str) -> Tuple[str, str]:
+    def get_digest_and_mediatype(self, url: str, tag: str, platform: str) -> tuple[str, str]:
         r = self._manifests_req(url, tag, 'application/vnd.docker.distribution.manifest.list.v2+json')
         manifests_list_data = r.json()
 
@@ -703,9 +714,9 @@ class ImageFetcher:
                 os=image_os
             )
 
-            v1_layer_info.container_config = ImageConfig()
+            v1_layer_info.container_config = ContainerConfig()
             if layer_info == layers[-1]:
-                v1_layer_info.config = ImageConfig()
+                v1_layer_info.config = ContainerConfig()
                 v1_layer_info.deepcopy(**image_config_data)
 
             with saver(v1_layer_id, "json") as f:
