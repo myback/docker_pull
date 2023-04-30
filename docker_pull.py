@@ -729,15 +729,21 @@ class ImageFetcher:
 
         print('Digest:', image_manifest_resp.headers.get('Docker-Content-Digest'), "\n")
 
+        if tag.startswith('sha256:'):
+            m0.RepoTags = None
+        else:
+            # https://github.com/moby/moby/issues/45440
+            # docker didn't create this file when pulling image by digest, but podman created ¯\_(ツ)_/¯
+            with saver("repositories") as repo_file:
+                repos_legacy = {image_repo: {tag: v1_layer_id}}
+
+                repo_file.write(json.dumps(repos_legacy, separators=JSON_SEPARATOR))
+                repo_file.write('\n')
+
         images_manifest_list = ManifestList()
         images_manifest_list.manifests.append(m0)
         with saver("manifest.json") as f:
             f.write(images_manifest_list.json + '\n')
-
-        with saver("repositories") as f:
-            d = {image_repo: {tag: v1_layer_id}}
-            f.write(json.dumps(d, separators=JSON_SEPARATOR))
-            f.write('\n')
 
         # Save layers with metadata to tar file
         with TarFile.open(f'{filename}.tar', 'w', remove_src_dir=not self._save_cache) as tar:
