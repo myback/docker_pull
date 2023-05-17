@@ -1,7 +1,7 @@
 # docker_pull
 The script makes it possible to download a docker-image without docker
 
-Required Python 3.7+
+Required Python 3.10+
 
 ## Use
 ```bash
@@ -9,29 +9,34 @@ Required Python 3.7+
 > cd docker_pull
 > chmod +x docker_pull.py
 > ./docker_pull.py -h
-usage: docker_pull.py [-h] [--save-cache] [--verbose] [--user USER] [--platform PLATFORM] [--password PASSWORD | -P]
-                      image [image ...]
+usage: docker_pull.py [-h] [--output OUTPUT] [--save-cache] [--registry REGISTRY] [--user USER] [--platform PLATFORM]
+                      [--silent | --verbose] [--password PASSWORD | --stdin-password]
+                      images [images ...]
 
 positional arguments:
-  image
+  images
 
-optional arguments:
+options:
   -h, --help                        show this help message and exit
-  --save-cache, -s                  Do not delete the temp folder after downloading the image
-  --verbose, -v                     Enable verbose output
+  --output OUTPUT, -o OUTPUT        Output dir
+  --save-cache                      Do not delete the temp folder
+  --registry REGISTRY, -r REGISTRY  Registry
   --user USER, -u USER              Registry login
-  --platform PLATFORM               Set platform if server is multi-platform capable
+  --platform PLATFORM               Set platform for downloaded image
+  --silent, -s                      Silent mode
+  --verbose, -v                     Enable debug output
   --password PASSWORD, -p PASSWORD  Registry password
-  -P                                Registry password (interactive)
-> ./docker_pull.py alpine:3.10
-3.10: Pulling from library/alpine
-21c83c524219: Pull complete
-Digest: sha256:a143f3ba578f79e2c7b3022c488e6e12a35836cd4a6eb9e363d7f3a07d848590
-> docker pull alpine:3.10
-> docker save alpine:3.10 -o alpine_3.10.tar
-> sha256sum *.tar
-d59b494721c87e7536ad6b68d9066b82b55b9697d89239adb56a6ba2878a042d  alpine_3.10.tar
-d59b494721c87e7536ad6b68d9066b82b55b9697d89239adb56a6ba2878a042d  library_alpine_3.10.tar
+  --stdin-password, -P              Registry password (interactive)
+
+> ./docker_pull.py alpine:3.17
+3.17: Pulling from alpine
+f56be85fc22e: Pull complete                                                                     
+Digest: sha256:9ed4aefc74f6792b5a804d1d146fe4b4a2299147b0f50eaf2b08435d7b38c27e 
+> docker pull --platform linux/amd64 alpine:3.17
+> docker save alpine:3.17 -o output/alpine_3.17.tar
+> sha256sum output/*.tar
+c9b254e3e3645bc58fd622d9bd3cd44e3987837b42dfec65f133fb58ce34ff93  output/alpine_3.17.tar
+c9b254e3e3645bc58fd622d9bd3cd44e3987837b42dfec65f133fb58ce34ff93  output/alpine_3.17_linux_amd64.tar
 ```
 Fetch multiple images
 ```bash
@@ -39,9 +44,14 @@ Fetch multiple images
 ```
 Verbose
 ```bash
-> ./docker_pull.py -v alpine  # Same as alpine:latest
+> ./docker_pull.py -v alpine
 ```
 Fetch image from private registry
 ```bash
-> ./docker_pull.py --user username --password 'P@$$w0rd' private-registry.mydomain.com/my_image:1.2.3
+> ./docker_pull.py --registry private-registry.mydomain.com --user username --password 'P@$$w0rd' private-registry.mydomain.com/my_image:1.2.3
+# or
+> echo 'P@$$w0rd' | ./docker_pull.py --registry private-registry.mydomain.com --user username --stdin-password private-registry.mydomain.com/my_image:1.2.3
+# or
+> ./docker_pull.py --registry private-registry.mydomain.com --user username --stdin-password private-registry.mydomain.com/my_image:1.2.3
+Password:
 ```
