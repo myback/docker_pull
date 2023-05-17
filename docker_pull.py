@@ -323,6 +323,7 @@ class ProgressBar:
         return self
 
     def flush(self, description: str):
+        self.set_size(0)
         self.update_description(description)
         self._end = '\n'
         self.write(self._content_size)
@@ -347,7 +348,8 @@ class ProgressBar:
                                            length=progressbar_fill_length,
                                            sizes=size_fmt_length)
         else:
-            progress_bar_str = f'{self._description}'
+            fill = self._progressbar_length - len(self._description)
+            progress_bar_str = f'{self._description}{" " * fill}'
 
         print(progress_bar_str, end=self._end, flush=True)
 
