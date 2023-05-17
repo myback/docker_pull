@@ -12,6 +12,7 @@ import os
 import platform as os_platform
 import shutil
 import struct
+import sys
 import tarfile
 import urllib.parse as urlparse
 from pathlib import Path
@@ -355,7 +356,7 @@ class ProgressBar:
 
 
 class Registry:
-    def __init__(self, credentials=None, ssl: bool = True):
+    def __init__(self, credentials: requests.auth.HTTPBasicAuth = None, ssl: bool = True):
         self.__credentials = credentials
         self._ssl = ssl
         self._session = requests.Session()
@@ -365,6 +366,10 @@ class Registry:
             raise ValueError("empty the www-authenticate header")
 
         auth_scheme, parsed = www_auth(resp.headers['www-authenticate'])
+        if auth_scheme.lower() == 'basic':
+            self.__credentials(self._session)
+            return
+
         url_parts = list(urlparse.urlparse(parsed['realm']))
 
         query = urlparse.parse_qs(url_parts[4])
@@ -387,15 +392,20 @@ class Registry:
         if not url.startswith('http'):
             url = f"http{'s' if self._ssl else ''}://{url}"
 
+        logging.debug('Request headers: %s', json.dumps(headers))
         r = self._session.get(url, headers=headers, stream=stream)
         if r.status_code == requests.codes.unauthorized:
             self._auth(r)
             r = self._session.get(url, headers=headers, stream=stream)
 
         if r.status_code != requests.codes.ok:
-            msg = f'Status code: {r.status_code}, Response: {r.content}'
-            logging.error(msg)
+            logging.error(
+                f'Status code: {r.status_code}, Response: {r.content}')
             r.raise_for_status()
+
+        logging.debug('Response headers: %s', json.dumps(r.headers.__dict__))
+        if not stream:
+            logging.debug('Response body: %s', r.content)
 
         return r
 
@@ -640,6 +650,9 @@ class ImageParser:
 
         self._from_string(image)
 
+    def __str__(self):
+        return f'{self.registry}/{self.image}:{self.image_digest or self.tag}'
+
     def _from_string(self, image: str):
         registry = self.REGISTRY_HOST
         tag = self.DEFAULT_IMAGE_TAG
@@ -852,6 +865,9 @@ class ImageFetcher:
     def _manifests(self, manifest_list: dict, platform: str) -> list:
         img_os, img_arch = image_platform(platform)
         manifests = manifest_list.get('manifests', [])
+        if manifest_list.get('schemaVersion') == 1:
+            raise ValueError("schema version 1 image manifest not supported")
+
         if not img_os and not img_arch:
             return manifests
 
@@ -905,16 +921,25 @@ if __name__ == '__main__':
     if parsed_args.verbose:
         logging.basicConfig(level=logging.DEBUG)
 
+    if parsed_args.silent or parsed_args.verbose:
+        progress = EmptyProgressBar()
+    else:
+        progress = ProgressBar()
+
     puller = ImageFetcher(
         parsed_args.output,
-        progress=EmptyProgressBar() if parsed_args.silent else ProgressBar(),
+        progress=progress,
         save_cache=parsed_args.save_cache
     )
 
     if parsed_args.user:
         password = parsed_args.password
         if parsed_args.stdin_password:
-            password = getpass.getpass()
+            std = sys.stdin
+            if sys.stdin.isatty():
+                password = getpass.getpass()
+            else:
+                password = sys.stdin.readline().strip()
 
         puller.set_registry(
             parsed_args.registry or ImageParser.REGISTRY_HOST,
