@@ -23,14 +23,16 @@ JSON_SEPARATOR = (',', ':')
 
 
 # based on json.decoder.py_scanstring
-def raw_scanstring(s, end, strict=True, _b=json.decoder.BACKSLASH, _m=json.decoder.STRINGCHUNK.match):
+def raw_scanstring(s, end, strict=True, _b=json.decoder.BACKSLASH,
+                   _m=json.decoder.STRINGCHUNK.match):
     chunks = []
     _append = chunks.append
     begin = end - 1
     while 1:
         chunk = _m(s, end)
         if chunk is None:
-            raise json.JSONDecodeError("Unterminated string starting at", s, begin)
+            raise json.JSONDecodeError("Unterminated string starting at",
+                                       s, begin)
         end = chunk.end()
         content, terminator = chunk.groups()
         if content:
@@ -47,7 +49,8 @@ def raw_scanstring(s, end, strict=True, _b=json.decoder.BACKSLASH, _m=json.decod
         try:
             esc = s[end]
         except IndexError:
-            raise json.JSONDecodeError("Unterminated string starting at", s, begin) from None
+            raise json.JSONDecodeError("Unterminated string starting at",
+                                       s, begin) from None
         if esc != 'u':
             try:
                 char = _b[esc]
@@ -88,7 +91,8 @@ class StructClassesJSONEncoder(json.JSONEncoder):
 class StructClasses:
     @property
     def json(self) -> str:
-        j = json.dumps(self, cls=StructClassesJSONEncoder, separators=JSON_SEPARATOR)
+        j = json.dumps(self, cls=StructClassesJSONEncoder,
+                       separators=JSON_SEPARATOR)
 
         return j.replace(r'\\u', r'\u')
 
@@ -109,11 +113,16 @@ class StructClasses:
 
 @dataclasses.dataclass
 class HealthConfig(StructClasses):
-    Test: list[str] = dataclasses.field(default_factory=list, metadata={'omitempty': True})
-    Interval: str = dataclasses.field(default='', metadata={'omitempty': True})
-    Timeout: str = dataclasses.field(default='', metadata={'omitempty': True})
-    StartPeriod: str = dataclasses.field(default='', metadata={'omitempty': True})
-    Retries: int = dataclasses.field(default=0, metadata={'omitempty': True})
+    Test: list[str] = dataclasses.field(default_factory=list,
+                                        metadata={'omitempty': True})
+    Interval: str = dataclasses.field(default='',
+                                      metadata={'omitempty': True})
+    Timeout: str = dataclasses.field(default='',
+                                     metadata={'omitempty': True})
+    StartPeriod: str = dataclasses.field(default='',
+                                         metadata={'omitempty': True})
+    Retries: int = dataclasses.field(default=0,
+                                     metadata={'omitempty': True})
 
 
 @dataclasses.dataclass
@@ -124,36 +133,50 @@ class ContainerConfig(StructClasses):
     AttachStdin: bool = dataclasses.field(default=False)
     AttachStdout: bool = dataclasses.field(default=False)
     AttachStderr: bool = dataclasses.field(default=False)
-    ExposedPorts: dict = dataclasses.field(default=None, metadata={'omitempty': True})
+    ExposedPorts: dict = dataclasses.field(default=None,
+                                           metadata={'omitempty': True})
     Tty: bool = dataclasses.field(default=False)
     OpenStdin: bool = dataclasses.field(default=False)
     StdinOnce: bool = dataclasses.field(default=False)
     Env: list = dataclasses.field(default=None)
     Cmd: list = dataclasses.field(default=None)
-    Healthcheck: HealthConfig = dataclasses.field(default=None, metadata={'omitempty': True})
-    ArgsEscaped: bool = dataclasses.field(default=False, metadata={'omitempty': True})
+    Healthcheck: HealthConfig = dataclasses.field(default=None,
+                                                  metadata={'omitempty': True})
+    ArgsEscaped: bool = dataclasses.field(default=False,
+                                          metadata={'omitempty': True})
     Image: str = dataclasses.field(default='')
     Volumes: dict = dataclasses.field(default=None)
     WorkingDir: str = dataclasses.field(default='')
     Entrypoint: list = dataclasses.field(default=None)
-    NetworkDisabled: bool = dataclasses.field(default=False, metadata={'omitempty': True})
-    MacAddress: str = dataclasses.field(default='', metadata={'omitempty': True})
+    NetworkDisabled: bool = dataclasses.field(default=False,
+                                              metadata={'omitempty': True})
+    MacAddress: str = dataclasses.field(default='',
+                                        metadata={'omitempty': True})
     OnBuild: list = dataclasses.field(default=None)
     Labels: dict = dataclasses.field(default=None)
-    StopSignal: str = dataclasses.field(default='', metadata={'omitempty': True})
-    StopTimeout: int = dataclasses.field(default=0, metadata={'omitempty': True})
-    Shell: list = dataclasses.field(default=None, metadata={'omitempty': True})
+    StopSignal: str = dataclasses.field(default='',
+                                        metadata={'omitempty': True})
+    StopTimeout: int = dataclasses.field(default=0,
+                                         metadata={'omitempty': True})
+    Shell: list = dataclasses.field(default=None,
+                                    metadata={'omitempty': True})
 
 
 @dataclasses.dataclass
 class LayerConfig(StructClasses):
-    architecture: str = dataclasses.field(default=None, metadata={'omitempty': True})
-    comment: str = dataclasses.field(default=None, metadata={'omitempty': True})
-    config: ContainerConfig = dataclasses.field(default=None, metadata={'omitempty': True})
-    container: str = dataclasses.field(default=None, metadata={'omitempty': True})
-    container_config: ContainerConfig = dataclasses.field(default=None, metadata={'omitempty': True})
+    architecture: str = dataclasses.field(default=None,
+                                          metadata={'omitempty': True})
+    comment: str = dataclasses.field(default=None,
+                                     metadata={'omitempty': True})
+    config: ContainerConfig = dataclasses.field(default=None,
+                                                metadata={'omitempty': True})
+    container: str = dataclasses.field(default=None,
+                                       metadata={'omitempty': True})
+    container_config: ContainerConfig = dataclasses.field(
+        default=None, metadata={'omitempty': True})
     created: str = dataclasses.field(default='1970-01-01T00:00:00Z')
-    docker_version: str = dataclasses.field(default=None, metadata={'omitempty': True})
+    docker_version: str = dataclasses.field(default=None,
+                                            metadata={'omitempty': True})
     layer_id: str = dataclasses.field(default='')
     os: str = dataclasses.field(default=None, metadata={'omitempty': True})
     parent: str = dataclasses.field(default=None, metadata={'omitempty': True})
@@ -163,15 +186,22 @@ class LayerConfig(StructClasses):
 class V1Image(StructClasses):
     id: str = dataclasses.field(default=None, metadata={'omitempty': True})
     parent: str = dataclasses.field(default=None, metadata={'omitempty': True})
-    comment: str = dataclasses.field(default=None, metadata={'omitempty': True})
+    comment: str = dataclasses.field(default=None,
+                                     metadata={'omitempty': True})
     created: str = '1970-01-01T00:00:00Z'
-    container: str = dataclasses.field(default=None, metadata={'omitempty': True})
-    container_config: ContainerConfig = dataclasses.field(default=None, metadata={'omitempty': True})
-    docker_version: str = dataclasses.field(default=None, metadata={'omitempty': True})
+    container: str = dataclasses.field(default=None,
+                                       metadata={'omitempty': True})
+    container_config: ContainerConfig = dataclasses.field(
+        default=None, metadata={'omitempty': True})
+    docker_version: str = dataclasses.field(default=None,
+                                            metadata={'omitempty': True})
     author: str = dataclasses.field(default=None, metadata={'omitempty': True})
-    config: ContainerConfig = dataclasses.field(default=None, metadata={'omitempty': True})
-    architecture: str = dataclasses.field(default=None, metadata={'omitempty': True})
-    variant: str = dataclasses.field(default=None, metadata={'omitempty': True})
+    config: ContainerConfig = dataclasses.field(default=None,
+                                                metadata={'omitempty': True})
+    architecture: str = dataclasses.field(default=None,
+                                          metadata={'omitempty': True})
+    variant: str = dataclasses.field(default=None,
+                                     metadata={'omitempty': True})
     os: str = dataclasses.field(default='linux', metadata={'omitempty': True})
     size: int = dataclasses.field(default=None, metadata={'omitempty': True})
 
@@ -179,13 +209,16 @@ class V1Image(StructClasses):
 @dataclasses.dataclass
 class RootFS:
     type: str
-    diff_ids: list[str] = dataclasses.field(default_factory=list, metadata={'omitempty': True})
+    diff_ids: list[str] = dataclasses.field(default_factory=list,
+                                            metadata={'omitempty': True})
 
 
 @dataclasses.dataclass
 class Image(V1Image):
-    rootfs: RootFS = dataclasses.field(default=None, metadata={'omitempty': True})
-    history: list[str] = dataclasses.field(default_factory=list, metadata={'omitempty': True})
+    rootfs: RootFS = dataclasses.field(default=None,
+                                       metadata={'omitempty': True})
+    history: list[str] = dataclasses.field(default_factory=list,
+                                           metadata={'omitempty': True})
 
 
 @dataclasses.dataclass
@@ -210,7 +243,9 @@ class ManifestList:
 
 class FilesManager:
     def __init__(self, work_dir: str | Path):
-        self._work_dir = Path(work_dir) if isinstance(work_dir, str) else work_dir
+        if isinstance(work_dir, str):
+            work_dir = Path(work_dir)
+        self._work_dir = work_dir
         self._work_dir.mkdir(0o755, True, True)
 
     def __call__(self, path: str):
@@ -304,11 +339,13 @@ class ProgressBar:
         progressbar_fill = '=' * (fill - 1) + fill_suffix
 
         if done and self._content_sizeof_fmt:
-            progress_bar_str = "{} [{:<{length}}] {:>{sizes}}".format(self._description,
-                                                                      progressbar_fill,
-                                                                      f'{sizeof_fmt(done)}/{self._content_sizeof_fmt}',
-                                                                      length=progressbar_fill_length,
-                                                                      sizes=size_fmt_length)
+            tmpl = "{} [{:<{length}}] {:>{sizes}}"
+            sizes = f'{sizeof_fmt(done)}/{self._content_sizeof_fmt}'
+            progress_bar_str = tmpl.format(self._description,
+                                           progressbar_fill,
+                                           sizes,
+                                           length=progressbar_fill_length,
+                                           sizes=size_fmt_length)
         else:
             progress_bar_str = f'{self._description}'
 
@@ -336,12 +373,15 @@ class Registry:
 
         url_parts[4] = urlparse.urlencode(query, True)
 
-        r = self._session.get(urlparse.urlunparse(url_parts), auth=self.__credentials)
+        r = self._session.get(urlparse.urlunparse(url_parts),
+                              auth=self.__credentials)
         r.raise_for_status()
 
-        self._session.headers['Authorization'] = f"{auth_scheme} {r.json()['token']}"
+        a_str = f"{auth_scheme} {r.json()['token']}"
+        self._session.headers['Authorization'] = a_str
 
-    def get(self, url: str, *, headers: dict = None, stream: bool = None) -> requests.Response:
+    def get(self, url: str, *,
+            headers: dict = None, stream: bool = None) -> requests.Response:
         if not url.startswith('http'):
             url = f"http{'s' if self._ssl else ''}://{url}"
 
@@ -351,13 +391,16 @@ class Registry:
             r = self._session.get(url, headers=headers, stream=stream)
 
         if r.status_code != requests.codes.ok:
-            logging.error(f'Status code: {r.status_code}, Response: {r.content}')
+            msg = f'Status code: {r.status_code}, Response: {r.content}'
+            logging.error(msg)
             r.raise_for_status()
 
         return r
 
-    def fetch_blob(self, url: str, out_file: Path, *, sha256: str = None,
-                   headers: dict = None, progress: ProgressBar = EmptyProgressBar()):
+    def fetch_blob(self, url: str, out_file: Path, *,
+                   sha256: str = None,
+                   headers: dict = None,
+                   progress: ProgressBar = EmptyProgressBar()):
 
         mode = 'wb'
         done = 0
@@ -408,7 +451,8 @@ class TarInfo(tarfile.TarInfo):
     @staticmethod
     def _create_header(info, fmt, encoding, errors):
         o_type = info.get('type', tarfile.REGTYPE)
-        mode = info.get('mode', 0) | (0o100000 if o_type == tarfile.REGTYPE else 0o40000)
+        oct_mode = 0o100000 if o_type == tarfile.REGTYPE else 0o40000
+        mode = info.get('mode', 0) | oct_mode
 
         parts = [
             tarfile.stn(info.get("name", ""), 100, encoding, errors),
@@ -442,7 +486,8 @@ def chain_ids(ids_list: list) -> list[str]:
         return ids_list
 
     nxt = list()
-    nxt.append("sha256:" + hashlib.sha256(f'{ids_list[0]} {ids_list[1]}'.encode()).hexdigest())
+    chain_b = f'{ids_list[0]} {ids_list[1]}'.encode()
+    nxt.append("sha256:" + hashlib.sha256(chain_b).hexdigest())
     nxt.extend(ids_list[2:])
 
     chain.extend(chain_ids(nxt))
@@ -527,9 +572,12 @@ def image_platform(s: str) -> tuple[str, str]:
     return _os, arch
 
 
-def unzip(zip_file_path: str | Path, out_file_path: str | Path,
-          remove_zip_file: bool = True, progress: ProgressBar = EmptyProgressBar()):
-    with gzip.open(zip_file_path, 'rb') as zip_data, open(out_file_path, 'wb') as unzip_data:
+def unzip(zip_file_path: str | Path,
+          out_file_path: str | Path,
+          remove_zip_file: bool = True,
+          progress: ProgressBar = EmptyProgressBar()):
+    with gzip.open(zip_file_path, 'rb') as zip_data, \
+            open(out_file_path, 'wb') as unzip_data:
         zip_data.myfileobj.seek(-4, 2)
         size_bytes = zip_data.myfileobj.read(4)
         zip_data.myfileobj.seek(0)
@@ -661,8 +709,7 @@ class ImageParser:
 
 
 class ImageFetcher:
-    __MANIFEST_LIST_MEDIA_TYPE = 'application/vnd.docker.distribution.manifest.list.v2+json'
-    __MANIFEST_IMAGE = 'application/vnd.docker.distribution.manifest.v2+json'
+    __LST_MTYPE = 'application/vnd.docker.distribution.manifest.list.v2+json'
 
     def __init__(self,
                  work_dir: Path, *,
@@ -674,11 +721,12 @@ class ImageFetcher:
         self._save_cache = save_cache
         self.__progress_bar = progress
 
-    def set_registry(self, registry: str, user: str = None, password: str = None, ssl: bool = True):
+    def set_registry(self, registry: str, user: str = None,
+                     password: str = None, ssl: bool = True):
         registry = registry.lstrip('https://').lstrip('http://')
 
-        credentials = requests.auth.HTTPBasicAuth(user, password) if user else None
-        self.__registry_list[registry] = Registry(credentials, ssl)
+        creds = requests.auth.HTTPBasicAuth(user, password) if user else None
+        self.__registry_list[registry] = Registry(creds, ssl)
 
     def _get_registry(self, registry: str) -> Registry:
         return self.__registry_list.get(registry, Registry())
@@ -688,7 +736,8 @@ class ImageFetcher:
         saver = self._fsm(dir_name)
 
         # get image manifest
-        image_manifest_resp = registry.get(img.url_manifests, headers={'Accept': media_type})
+        image_manifest_resp = registry.get(img.url_manifests,
+                                           headers={'Accept': media_type})
         image_manifest_spec = image_manifest_resp.json()
 
         if image_manifest_spec['schemaVersion'] == 1:
@@ -735,8 +784,11 @@ class ImageFetcher:
                 v1_layer_info.deepcopy(image_config)
 
             with saver(v1_layer_id) as fw:
-                registry.fetch_blob(img.url_blobs(layer_info['digest']), fw.filepath('layer.tar'),
-                                    headers={'Accept': layer_info['mediaType']}, progress=self.__progress_bar)
+                headers = {'Accept': layer_info['mediaType']}
+                registry.fetch_blob(img.url_blobs(layer_info['digest']),
+                                    fw.filepath('layer.tar'),
+                                    headers=headers,
+                                    progress=self.__progress_bar)
 
                 fw.write('json', v1_layer_info.json)
                 fw.write('VERSION', '1.0')
@@ -745,7 +797,8 @@ class ImageFetcher:
 
         if img.tag:
             # https://github.com/moby/moby/issues/45440
-            # docker didn't create this file when pulling image by digest, but podman created ¯\_(ツ)_/¯
+            # docker didn't create this file when pulling image by digest, 
+            # but podman created ¯\_(ツ)_/¯
             repos_legacy = {img.image: {img.tag: v1_layer_id}}
             data = json.dumps(repos_legacy, separators=JSON_SEPARATOR) + '\n'
 
@@ -770,7 +823,7 @@ class ImageFetcher:
 
         print(f'{img.tag}: Pulling from {img.image}')
         # get manifest list
-        headers = {'Accept': self.__MANIFEST_LIST_MEDIA_TYPE}
+        headers = {'Accept': self.__LST_MTYPE}
         manifest_list_resp = registry.get(img.url_manifests, headers=headers)
         manifest_list = manifest_list_resp.json()
 
@@ -780,7 +833,8 @@ class ImageFetcher:
                 img_name_n = img.image.replace('/', '_')
                 img_tag_n = img.tag.replace(':', '_')
                 plf = mfst['platform']
-                dir_name = f"{img_name_n}_{img_tag_n}_{plf['os']}_{plf['architecture']}"
+                arch = plf['architecture']
+                dir_name = f"{img_name_n}_{img_tag_n}_{plf['os']}_{arch}"
 
                 self._fetch_image(img, mfst['mediaType'], dir_name)
         else:
@@ -817,25 +871,33 @@ class ImageFetcher:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         prog='docker_pull.py',
-        formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=36, width=120))
+        formatter_class=lambda prog: argparse.HelpFormatter(
+            prog,
+            max_help_position=36,
+            width=120
+        ))
 
     parser.add_argument('images', nargs='+')
 
-    parser.add_argument('--output', '-o', default="output", type=Path, help="Output dir")
+    parser.add_argument('--output', '-o', default="output", type=Path,
+                        help="Output dir")
     parser.add_argument('--save-cache', action='store_true',
-                        help="Do not delete the temp folder after downloading the image")
+                        help="Do not delete the temp folder")
     parser.add_argument('--registry', '-r', type=str, help="Registry")
     parser.add_argument('--user', '-u', type=str, help="Registry login")
     parser.add_argument('--platform', type=str, default='linux/amd64',
-                        help="Set platform if server is multi-platform capable")
+                        help="Set platform for downloaded image")
 
     verbose_grp = parser.add_mutually_exclusive_group()
-    verbose_grp.add_argument('--silent', '-s', action='store_true', help="Silent mode")
-    verbose_grp.add_argument('--verbose', '-v', action='store_true', help="Enable debug output")
+    verbose_grp.add_argument('--silent', '-s', action='store_true',
+                             help="Silent mode")
+    verbose_grp.add_argument('--verbose', '-v', action='store_true',
+                             help="Enable debug output")
 
     grp = parser.add_mutually_exclusive_group()
     grp.add_argument('--password', '-p', type=str, help="Registry password")
-    grp.add_argument('--stdin-password', '-P', action='store_true', help="Registry password (interactive)")
+    grp.add_argument('--stdin-password', '-P', action='store_true',
+                     help="Registry password (interactive)")
     parsed_args = parser.parse_args()
 
     if parsed_args.verbose:
@@ -848,7 +910,10 @@ if __name__ == '__main__':
     )
 
     if parsed_args.user:
-        password = getpass.getpass() if parsed_args.stdin_password else parsed_args.password
+        password = parsed_args.password
+        if parsed_args.stdin_password:
+            password = getpass.getpass()
+
         puller.set_registry(
             parsed_args.registry or ImageParser.REGISTRY_HOST,
             parsed_args.user,
