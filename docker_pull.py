@@ -16,6 +16,7 @@ import sys
 import tarfile
 import urllib.parse as urlparse
 from pathlib import Path
+from posixpath import join as path_join
 
 import requests
 import requests.auth
@@ -268,11 +269,10 @@ class FilesManager:
         return self._join_path(Path(name))
 
     def write(self, name: str, data: str | bytes):
-        mode = 'w'
-        if isinstance(data, bytes):
-            mode = 'wb'
+        if isinstance(data, str):
+            data = data.encode()
 
-        with self.open(name, mode) as f:
+        with self.open(name, 'wb') as f:
             f.write(data)
 
     def open(self, name: str | Path, mode='r', buffering=-1, encoding=None,
@@ -463,8 +463,12 @@ class TarInfo(tarfile.TarInfo):
     @staticmethod
     def _create_header(info, fmt, encoding, errors):
         o_type = info.get('type', tarfile.REGTYPE)
-        oct_mode = 0o100000 if o_type == tarfile.REGTYPE else 0o40000
-        mode = info.get('mode', 0) | oct_mode
+
+        if os.name == "nt":
+            mode = 0o100644 if o_type == tarfile.REGTYPE else 0o40755
+        else:
+            oct_mode = 0o100000 if o_type == tarfile.REGTYPE else 0o40000
+            mode = info.get('mode', 0) | oct_mode
 
         parts = [
             tarfile.stn(info.get("name", ""), 100, encoding, errors),
@@ -678,12 +682,12 @@ class ImageParser:
             self._tag = tag
 
     def _url(self, typ: str, tag: str):
-        image = self.image
-        idx = image.find('/')
+        img = self.image
+        idx = img.find('/')
         if idx == -1 and self.registry == self.REGISTRY_HOST:
-            image = os.path.join(self.REGISTRY_IMAGE_PREFIX, image)
+            img = path_join(self.REGISTRY_IMAGE_PREFIX, img)
 
-        return f'{self._registry}/v2/{image}/{typ}/{tag}'
+        return f'{self._registry}/v2/{img}/{typ}/{tag}'
 
     @property
     def url_manifests(self):
