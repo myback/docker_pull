@@ -3,7 +3,7 @@
 .history/
 .venv/
 venv/
-
+output/
 __pycache__/
 *.tmp/
 
