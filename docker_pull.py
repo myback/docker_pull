@@ -462,23 +462,15 @@ class Registry:
 class TarInfo(tarfile.TarInfo):
     @staticmethod
     def _create_header(info, fmt, encoding, errors):
-        o_type = info.get('type', tarfile.REGTYPE)
-
-        if os.name == "nt":
-            mode = 0o100644 if o_type == tarfile.REGTYPE else 0o40755
-        else:
-            oct_mode = 0o100000 if o_type == tarfile.REGTYPE else 0o40000
-            mode = info.get('mode', 0) | oct_mode
-
         parts = [
             tarfile.stn(info.get("name", ""), 100, encoding, errors),
-            tarfile.itn(mode, 8, fmt),
+            tarfile.itn(info.get("mode", 0) & 0o7777, 8, fmt),
             tarfile.itn(info.get("uid", 0), 8, fmt),
             tarfile.itn(info.get("gid", 0), 8, fmt),
             tarfile.itn(info.get("size", 0), 12, fmt),
             tarfile.itn(info.get("mtime", 0), 12, fmt),
-            b" " * 8,  # checksum field
-            o_type,
+            b"        ", # checksum field
+            info.get('type', tarfile.REGTYPE),
             tarfile.stn(info.get("linkname", ""), 100, encoding, errors),
             info.get("magic", tarfile.POSIX_MAGIC),
             tarfile.stn(info.get("uname", ""), 32, encoding, errors),
@@ -490,8 +482,8 @@ class TarInfo(tarfile.TarInfo):
 
         buf = struct.pack("%ds" % tarfile.BLOCKSIZE, b"".join(parts))
         chksum = tarfile.calc_chksums(buf[-tarfile.BLOCKSIZE:])[0]
-        buf = buf[:-364] + bytes("%06o\0" % chksum, "ascii") + buf[-357:]
-        return buf
+
+        return buf[:-364] + bytes("%06o\0" % chksum, "ascii") + buf[-357:]
 
 
 def chain_ids(ids_list: list) -> list[str]:
@@ -816,7 +808,7 @@ class ImageFetcher:
 
         if img.tag:
             # https://github.com/moby/moby/issues/45440
-            # docker didn't create this file when pulling image by digest, 
+            # docker didn't create this file when pulling image by digest,
             # but podman created ¯\_(ツ)_/¯
             repos_legacy = {img.image: {img.tag: v1_layer_id}}
             data = json.dumps(repos_legacy, separators=JSON_SEPARATOR) + '\n'
@@ -926,30 +918,30 @@ if __name__ == '__main__':
         logging.basicConfig(level=logging.DEBUG)
 
     if parsed_args.silent or parsed_args.verbose:
-        progress = EmptyProgressBar()
+        _progress = EmptyProgressBar()
     else:
-        progress = ProgressBar()
+        _progress = ProgressBar()
 
     puller = ImageFetcher(
         parsed_args.output,
-        progress=progress,
+        progress=_progress,
         save_cache=parsed_args.save_cache
     )
 
     if parsed_args.user:
-        password = parsed_args.password
+        _password = parsed_args.password
         if parsed_args.stdin_password:
             std = sys.stdin
             if sys.stdin.isatty():
-                password = getpass.getpass()
+                _password = getpass.getpass()
             else:
-                password = sys.stdin.readline().strip()
+                _password = sys.stdin.readline().strip()
 
         puller.set_registry(
             parsed_args.registry or ImageParser.REGISTRY_HOST,
             parsed_args.user,
-            password
+            _password
         )
 
-    for image in parsed_args.images:
-        puller.pull(image, parsed_args.platform)
+    for _image in parsed_args.images:
+        puller.pull(_image, parsed_args.platform)
