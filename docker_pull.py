@@ -778,6 +778,7 @@ class ImageFetcher:
 
         v1_layer_id = None
         parent_id = None
+        previous_digest = None
         layers = image_manifest_spec['layers']
         for i, layer_info in enumerate(layers):
             v1_layer_id = v1_layer_ids_list[i][7:]
@@ -794,16 +795,21 @@ class ImageFetcher:
                 v1_layer_info.config = ContainerConfig()
                 v1_layer_info.deepcopy(image_config)
 
+            digest = layer_info['digest']
             with saver(v1_layer_id) as fw:
-                headers = {'Accept': layer_info['mediaType']}
-                registry.fetch_blob(img.url_blobs(layer_info['digest']),
-                                    fw.filepath('layer.tar'),
-                                    headers=headers,
-                                    progress=self.__progress_bar)
+                if previous_digest == digest:
+                    # `docker save` command is not deterministic https://github.com/moby/moby/issues/42766#issuecomment-1801221610
+                    os.symlink(f'../{parent_id}/layer.tar', fw.filepath('layer.tar'))
+                else:
+                    registry.fetch_blob(img.url_blobs(digest),
+                                        fw.filepath('layer.tar'),
+                                        headers={'Accept': layer_info['mediaType']},
+                                        progress=self.__progress_bar)
 
                 fw.write('json', v1_layer_info.json)
                 fw.write('VERSION', '1.0')
 
+            previous_digest = digest
             parent_id = v1_layer_id
 
         if img.tag:
