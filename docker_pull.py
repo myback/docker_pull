@@ -21,27 +21,33 @@ from posixpath import join as path_join
 import requests
 import requests.auth
 
-JSON_SEPARATOR = (',', ':')
+JSON_SEPARATOR = (",", ":")
 
 
 # based on json.decoder.py_scanstring
-def raw_scanstring(s, end, strict=True, _b=json.decoder.BACKSLASH,
-                   _m=json.decoder.STRINGCHUNK.match):
+def raw_scanstring(
+    s,
+    end,
+    strict=True,
+    _b=json.decoder.BACKSLASH,
+    _m=json.decoder.STRINGCHUNK.match,
+):
     chunks = []
     _append = chunks.append
     begin = end - 1
     while 1:
         chunk = _m(s, end)
         if chunk is None:
-            raise json.JSONDecodeError("Unterminated string starting at",
-                                       s, begin)
+            raise json.JSONDecodeError(
+                "Unterminated string starting at", s, begin
+            )
         end = chunk.end()
         content, terminator = chunk.groups()
         if content:
             _append(content)
         if terminator == '"':
             break
-        elif terminator != '\\':
+        elif terminator != "\\":
             if strict:
                 msg = "Invalid control character {0!r} at".format(terminator)
                 raise json.JSONDecodeError(msg, s, end)
@@ -51,9 +57,10 @@ def raw_scanstring(s, end, strict=True, _b=json.decoder.BACKSLASH,
         try:
             esc = s[end]
         except IndexError:
-            raise json.JSONDecodeError("Unterminated string starting at",
-                                       s, begin) from None
-        if esc != 'u':
+            raise json.JSONDecodeError(
+                "Unterminated string starting at", s, begin
+            ) from None
+        if esc != "u":
             try:
                 char = _b[esc]
             except KeyError:
@@ -66,7 +73,7 @@ def raw_scanstring(s, end, strict=True, _b=json.decoder.BACKSLASH,
             end += 5
             char = s[st:end]
         _append(char)
-    return ''.join(chunks), end
+    return "".join(chunks), end
 
 
 class JSONDecoderRawString(json.JSONDecoder):
@@ -82,7 +89,7 @@ class StructClassesJSONEncoder(json.JSONEncoder):
             res = []
             for f in dataclasses.fields(o):
                 value = getattr(o, f.name)
-                if not (f.metadata.get('omitempty') and not value):
+                if not (f.metadata.get("omitempty") and not value):
                     res.append((f.name, value))
 
             return dict(res)
@@ -93,10 +100,11 @@ class StructClassesJSONEncoder(json.JSONEncoder):
 class StructClasses:
     @property
     def json(self) -> str:
-        j = json.dumps(self, cls=StructClassesJSONEncoder,
-                       separators=JSON_SEPARATOR)
+        j = json.dumps(
+            self, cls=StructClassesJSONEncoder, separators=JSON_SEPARATOR
+        )
 
-        return j.replace(r'\\u', r'\u')
+        return j.replace(r"\\u", r"\u")
 
     def _update(self, o, kwargs):
         for k, v in kwargs.items():
@@ -115,117 +123,148 @@ class StructClasses:
 
 @dataclasses.dataclass
 class HealthConfig(StructClasses):
-    Test: list[str] = dataclasses.field(default_factory=list,
-                                        metadata={'omitempty': True})
-    Interval: str = dataclasses.field(default='',
-                                      metadata={'omitempty': True})
-    Timeout: str = dataclasses.field(default='',
-                                     metadata={'omitempty': True})
-    StartPeriod: str = dataclasses.field(default='',
-                                         metadata={'omitempty': True})
-    Retries: int = dataclasses.field(default=0,
-                                     metadata={'omitempty': True})
+    Test: list[str] = dataclasses.field(
+        default_factory=list, metadata={"omitempty": True}
+    )
+    Interval: str = dataclasses.field(
+        default="", metadata={"omitempty": True}
+    )
+    Timeout: str = dataclasses.field(default="", metadata={"omitempty": True})
+    StartPeriod: str = dataclasses.field(
+        default="", metadata={"omitempty": True}
+    )
+    Retries: int = dataclasses.field(default=0, metadata={"omitempty": True})
 
 
 @dataclasses.dataclass
 class ContainerConfig(StructClasses):
-    Hostname: str = dataclasses.field(default='')
-    Domainname: str = dataclasses.field(default='')
-    User: str = dataclasses.field(default='')
+    Hostname: str = dataclasses.field(default="")
+    Domainname: str = dataclasses.field(default="")
+    User: str = dataclasses.field(default="")
     AttachStdin: bool = dataclasses.field(default=False)
     AttachStdout: bool = dataclasses.field(default=False)
     AttachStderr: bool = dataclasses.field(default=False)
-    ExposedPorts: dict = dataclasses.field(default=None,
-                                           metadata={'omitempty': True})
+    ExposedPorts: dict = dataclasses.field(
+        default=None, metadata={"omitempty": True}
+    )
     Tty: bool = dataclasses.field(default=False)
     OpenStdin: bool = dataclasses.field(default=False)
     StdinOnce: bool = dataclasses.field(default=False)
     Env: list = dataclasses.field(default=None)
     Cmd: list = dataclasses.field(default=None)
-    Healthcheck: HealthConfig = dataclasses.field(default=None,
-                                                  metadata={'omitempty': True})
-    ArgsEscaped: bool = dataclasses.field(default=False,
-                                          metadata={'omitempty': True})
-    Image: str = dataclasses.field(default='')
+    Healthcheck: HealthConfig = dataclasses.field(
+        default=None, metadata={"omitempty": True}
+    )
+    ArgsEscaped: bool = dataclasses.field(
+        default=False, metadata={"omitempty": True}
+    )
+    Image: str = dataclasses.field(default="")
     Volumes: dict = dataclasses.field(default=None)
-    WorkingDir: str = dataclasses.field(default='')
+    WorkingDir: str = dataclasses.field(default="")
     Entrypoint: list = dataclasses.field(default=None)
-    NetworkDisabled: bool = dataclasses.field(default=False,
-                                              metadata={'omitempty': True})
-    MacAddress: str = dataclasses.field(default='',
-                                        metadata={'omitempty': True})
+    NetworkDisabled: bool = dataclasses.field(
+        default=False, metadata={"omitempty": True}
+    )
+    MacAddress: str = dataclasses.field(
+        default="", metadata={"omitempty": True}
+    )
     OnBuild: list = dataclasses.field(default=None)
     Labels: dict = dataclasses.field(default=None)
-    StopSignal: str = dataclasses.field(default='',
-                                        metadata={'omitempty': True})
-    StopTimeout: int = dataclasses.field(default=0,
-                                         metadata={'omitempty': True})
-    Shell: list = dataclasses.field(default=None,
-                                    metadata={'omitempty': True})
+    StopSignal: str = dataclasses.field(
+        default="", metadata={"omitempty": True}
+    )
+    StopTimeout: int = dataclasses.field(
+        default=0, metadata={"omitempty": True}
+    )
+    Shell: list = dataclasses.field(
+        default=None, metadata={"omitempty": True}
+    )
 
 
 @dataclasses.dataclass
 class LayerConfig(StructClasses):
-    architecture: str = dataclasses.field(default=None,
-                                          metadata={'omitempty': True})
-    comment: str = dataclasses.field(default=None,
-                                     metadata={'omitempty': True})
-    config: ContainerConfig = dataclasses.field(default=None,
-                                                metadata={'omitempty': True})
-    container: str = dataclasses.field(default=None,
-                                       metadata={'omitempty': True})
+    architecture: str = dataclasses.field(
+        default=None, metadata={"omitempty": True}
+    )
+    comment: str = dataclasses.field(
+        default=None, metadata={"omitempty": True}
+    )
+    config: ContainerConfig = dataclasses.field(
+        default=None, metadata={"omitempty": True}
+    )
+    container: str = dataclasses.field(
+        default=None, metadata={"omitempty": True}
+    )
     container_config: ContainerConfig = dataclasses.field(
-        default=None, metadata={'omitempty': True})
-    created: str = dataclasses.field(default='1970-01-01T00:00:00Z')
-    docker_version: str = dataclasses.field(default=None,
-                                            metadata={'omitempty': True})
-    layer_id: str = dataclasses.field(default='')
-    os: str = dataclasses.field(default=None, metadata={'omitempty': True})
-    parent: str = dataclasses.field(default=None, metadata={'omitempty': True})
+        default=None, metadata={"omitempty": True}
+    )
+    created: str = dataclasses.field(default="1970-01-01T00:00:00Z")
+    docker_version: str = dataclasses.field(
+        default=None, metadata={"omitempty": True}
+    )
+    layer_id: str = dataclasses.field(default="")
+    os: str = dataclasses.field(default=None, metadata={"omitempty": True})
+    parent: str = dataclasses.field(
+        default=None, metadata={"omitempty": True}
+    )
 
 
 @dataclasses.dataclass
 class V1Image(StructClasses):
-    id: str = dataclasses.field(default=None, metadata={'omitempty': True})
-    parent: str = dataclasses.field(default=None, metadata={'omitempty': True})
-    comment: str = dataclasses.field(default=None,
-                                     metadata={'omitempty': True})
-    created: str = '1970-01-01T00:00:00Z'
-    container: str = dataclasses.field(default=None,
-                                       metadata={'omitempty': True})
+    id: str = dataclasses.field(default=None, metadata={"omitempty": True})
+    parent: str = dataclasses.field(
+        default=None, metadata={"omitempty": True}
+    )
+    comment: str = dataclasses.field(
+        default=None, metadata={"omitempty": True}
+    )
+    created: str = "1970-01-01T00:00:00Z"
+    container: str = dataclasses.field(
+        default=None, metadata={"omitempty": True}
+    )
     container_config: ContainerConfig = dataclasses.field(
-        default=None, metadata={'omitempty': True})
-    docker_version: str = dataclasses.field(default=None,
-                                            metadata={'omitempty': True})
-    author: str = dataclasses.field(default=None, metadata={'omitempty': True})
-    config: ContainerConfig = dataclasses.field(default=None,
-                                                metadata={'omitempty': True})
-    architecture: str = dataclasses.field(default=None,
-                                          metadata={'omitempty': True})
-    variant: str = dataclasses.field(default=None,
-                                     metadata={'omitempty': True})
-    os: str = dataclasses.field(default='linux', metadata={'omitempty': True})
-    size: int = dataclasses.field(default=None, metadata={'omitempty': True})
+        default=None, metadata={"omitempty": True}
+    )
+    docker_version: str = dataclasses.field(
+        default=None, metadata={"omitempty": True}
+    )
+    author: str = dataclasses.field(
+        default=None, metadata={"omitempty": True}
+    )
+    config: ContainerConfig = dataclasses.field(
+        default=None, metadata={"omitempty": True}
+    )
+    architecture: str = dataclasses.field(
+        default=None, metadata={"omitempty": True}
+    )
+    variant: str = dataclasses.field(
+        default=None, metadata={"omitempty": True}
+    )
+    os: str = dataclasses.field(default="linux", metadata={"omitempty": True})
+    size: int = dataclasses.field(default=None, metadata={"omitempty": True})
 
 
 @dataclasses.dataclass
 class RootFS:
     type: str
-    diff_ids: list[str] = dataclasses.field(default_factory=list,
-                                            metadata={'omitempty': True})
+    diff_ids: list[str] = dataclasses.field(
+        default_factory=list, metadata={"omitempty": True}
+    )
 
 
 @dataclasses.dataclass
 class Image(V1Image):
-    rootfs: RootFS = dataclasses.field(default=None,
-                                       metadata={'omitempty': True})
-    history: list[str] = dataclasses.field(default_factory=list,
-                                           metadata={'omitempty': True})
+    rootfs: RootFS = dataclasses.field(
+        default=None, metadata={"omitempty": True}
+    )
+    history: list[str] = dataclasses.field(
+        default_factory=list, metadata={"omitempty": True}
+    )
 
 
 @dataclasses.dataclass
 class Manifest:
-    Config: str = ''
+    Config: str = ""
     RepoTags: list[str] = dataclasses.field(default_factory=list)
     Layers: list[str] = dataclasses.field(default_factory=list)
 
@@ -272,16 +311,23 @@ class FilesManager:
         if isinstance(data, str):
             data = data.encode()
 
-        with self.open(name, 'wb') as f:
+        with self.open(name, "wb") as f:
             f.write(data)
 
-    def open(self, name: str | Path, mode='r', buffering=-1, encoding=None,
-             errors=None, newline=None):
+    def open(
+        self,
+        name: str | Path,
+        mode="r",
+        buffering=-1,
+        encoding=None,
+        errors=None,
+        newline=None,
+    ):
         if isinstance(name, str):
             name = Path(name)
 
         path = self._join_path(name)
-        if 'w' in mode:
+        if "w" in mode:
             path.parent.mkdir(0o755, True, True)
 
         return path.open(mode, buffering, encoding, errors, newline)
@@ -304,50 +350,53 @@ class EmptyProgressBar:
 
 class ProgressBar:
     def __init__(self, progressbar_length: int = 96):
-        self._end = '\r'
-        self._description = ''
-        self._content_sizeof_fmt = '0'
+        self._end = "\r"
+        self._description = ""
+        self._content_sizeof_fmt = "0"
         self._content_size = 0
         self._progressbar_length = progressbar_length
 
     def set_size(self, size: int):
         self._content_sizeof_fmt = sizeof_fmt(size)
         self._content_size = size
-        self._end = '\r'
+        self._end = "\r"
 
         return self
 
     def update_description(self, s: str):
         self._description = s
-        self._end = '\r'
+        self._end = "\r"
 
         return self
 
     def flush(self, description: str):
         self.set_size(0)
         self.update_description(description)
-        self._end = '\n'
+        self._end = "\n"
         self.write(self._content_size)
 
     def write(self, done: int):
         size_fmt_length = 18
-        fill = progressbar_fill_length = self._progressbar_length - \
-                                         (4 + len(self._description) + size_fmt_length)
+        fill = progressbar_fill_length = self._progressbar_length - (
+            4 + len(self._description) + size_fmt_length
+        )
 
         if self._content_size:
             fill = int(progressbar_fill_length * done / self._content_size)
 
-        fill_suffix = '=' if progressbar_fill_length == fill else '>'
-        progressbar_fill = '=' * (fill - 1) + fill_suffix
+        fill_suffix = "=" if progressbar_fill_length == fill else ">"
+        progressbar_fill = "=" * (fill - 1) + fill_suffix
 
         if done and self._content_sizeof_fmt:
             tmpl = "{} [{:<{length}}] {:>{sizes}}"
-            sizes = f'{sizeof_fmt(done)}/{self._content_sizeof_fmt}'
-            progress_bar_str = tmpl.format(self._description,
-                                           progressbar_fill,
-                                           sizes,
-                                           length=progressbar_fill_length,
-                                           sizes=size_fmt_length)
+            sizes = f"{sizeof_fmt(done)}/{self._content_sizeof_fmt}"
+            progress_bar_str = tmpl.format(
+                self._description,
+                progressbar_fill,
+                sizes,
+                length=progressbar_fill_length,
+                sizes=size_fmt_length,
+            )
         else:
             fill = self._progressbar_length - len(self._description)
             progress_bar_str = f'{self._description}{" " * fill}'
@@ -356,43 +405,49 @@ class ProgressBar:
 
 
 class Registry:
-    def __init__(self, credentials: requests.auth.HTTPBasicAuth = None, ssl: bool = True):
+    def __init__(
+        self,
+        credentials: requests.auth.HTTPBasicAuth = None,
+        ssl: bool = True,
+    ):
         self.__credentials = credentials
         self._ssl = ssl
         self._session = requests.Session()
 
     def _auth(self, resp: requests.Response):
-        if not resp.headers.get('www-authenticate'):
+        if not resp.headers.get("www-authenticate"):
             raise ValueError("empty the www-authenticate header")
 
-        auth_scheme, parsed = www_auth(resp.headers['www-authenticate'])
-        if auth_scheme.lower() == 'basic':
+        auth_scheme, parsed = www_auth(resp.headers["www-authenticate"])
+        if auth_scheme.lower() == "basic":
             self.__credentials(self._session)
             return
 
-        url_parts = list(urlparse.urlparse(parsed['realm']))
+        url_parts = list(urlparse.urlparse(parsed["realm"]))
 
         query = urlparse.parse_qs(url_parts[4])
-        query.update(service=parsed['service'])
-        scope = parsed.get('scope')
+        query.update(service=parsed["service"])
+        scope = parsed.get("scope")
         if scope:
             query.update(scope=scope)
 
         url_parts[4] = urlparse.urlencode(query, True)
 
-        r = self._session.get(urlparse.urlunparse(url_parts),
-                              auth=self.__credentials)
+        r = self._session.get(
+            urlparse.urlunparse(url_parts), auth=self.__credentials
+        )
         r.raise_for_status()
 
         a_str = f"{auth_scheme} {r.json()['token']}"
-        self._session.headers['Authorization'] = a_str
+        self._session.headers["Authorization"] = a_str
 
-    def get(self, url: str, *,
-            headers: dict = None, stream: bool = None) -> requests.Response:
-        if not url.startswith('http'):
+    def get(
+        self, url: str, *, headers: dict = None, stream: bool = None
+    ) -> requests.Response:
+        if not url.startswith("http"):
             url = f"http{'s' if self._ssl else ''}://{url}"
 
-        logging.debug('Request headers: %s', json.dumps(headers))
+        logging.debug("Request headers: %s", json.dumps(headers))
         r = self._session.get(url, headers=headers, stream=stream)
         if r.status_code == requests.codes.unauthorized:
             self._auth(r)
@@ -400,48 +455,54 @@ class Registry:
 
         if r.status_code != requests.codes.ok:
             logging.error(
-                f'Status code: {r.status_code}, Response: {r.content}')
+                f"Status code: {r.status_code}, Response: {r.content}"
+            )
             r.raise_for_status()
 
-        logging.debug('Response headers: %s', json.dumps(r.headers.__dict__))
+        logging.debug("Response headers: %s", json.dumps(r.headers.__dict__))
         if not stream:
-            logging.debug('Response body: %s', r.content)
+            logging.debug("Response body: %s", r.content)
 
         return r
 
-    def fetch_blob(self, url: str, out_file: Path, *,
-                   sha256: str = None,
-                   headers: dict = None,
-                   progress: ProgressBar = EmptyProgressBar()):
+    def fetch_blob(
+        self,
+        url: str,
+        out_file: Path,
+        *,
+        sha256: str = None,
+        headers: dict = None,
+        progress: ProgressBar = EmptyProgressBar(),
+    ):
 
-        mode = 'wb'
+        mode = "wb"
         done = 0
         layer_id_short = os.path.basename(url)[7:19]
-        temp_file = out_file.with_suffix('.gz')
+        temp_file = out_file.with_suffix(".gz")
 
         if temp_file.exists():
             done = temp_file.stat().st_size
             if done:
                 logging.debug(f'resume download layer blob "{temp_file}"')
-                mode = 'ab'
+                mode = "ab"
 
             if sha256sum(temp_file) == sha256:
                 if progress:
-                    progress.flush(f'{layer_id_short}: Pull complete')
+                    progress.flush(f"{layer_id_short}: Pull complete")
 
-                logging.debug(f'File {temp_file} is up to date')
+                logging.debug(f"File {temp_file} is up to date")
                 return
 
-            headers['Range'] = f'bytes={done}-'
+            headers["Range"] = f"bytes={done}-"
 
-        progress.update_description(f'{layer_id_short}: Pulling fs layer')
+        progress.update_description(f"{layer_id_short}: Pulling fs layer")
         progress.set_size(0)
         progress.write(0)
 
         r = self.get(url, headers=headers, stream=True)
 
-        progress.update_description(f'{layer_id_short}: Downloading')
-        progress.set_size(int(r.headers.get('Content-Length', 0)))
+        progress.update_description(f"{layer_id_short}: Downloading")
+        progress.set_size(int(r.headers.get("Content-Length", 0)))
 
         with open(temp_file, mode) as f:
             for chunk in r.iter_content(chunk_size=131072):
@@ -452,11 +513,11 @@ class Registry:
                     if progress:
                         progress.write(done)
 
-        progress.update_description(f'{layer_id_short}: Extracting')
+        progress.update_description(f"{layer_id_short}: Extracting")
 
         unzip(temp_file, out_file, progress=progress)
 
-        progress.flush(f'{layer_id_short}: Pull complete')
+        progress.flush(f"{layer_id_short}: Pull complete")
 
 
 class TarInfo(tarfile.TarInfo):
@@ -469,19 +530,19 @@ class TarInfo(tarfile.TarInfo):
             tarfile.itn(info.get("gid", 0), 8, fmt),
             tarfile.itn(info.get("size", 0), 12, fmt),
             tarfile.itn(info.get("mtime", 0), 12, fmt),
-            b"        ", # checksum field
-            info.get('type', tarfile.REGTYPE),
+            b"        ",  # checksum field
+            info.get("type", tarfile.REGTYPE),
             tarfile.stn(info.get("linkname", ""), 100, encoding, errors),
             info.get("magic", tarfile.POSIX_MAGIC),
             tarfile.stn(info.get("uname", ""), 32, encoding, errors),
             tarfile.stn(info.get("gname", ""), 32, encoding, errors),
             tarfile.itn(info.get("devmajor", 0), 8, fmt),
             tarfile.itn(info.get("devminor", 0), 8, fmt),
-            tarfile.stn(info.get("prefix", ""), 155, encoding, errors)
+            tarfile.stn(info.get("prefix", ""), 155, encoding, errors),
         ]
 
         buf = struct.pack("%ds" % tarfile.BLOCKSIZE, b"".join(parts))
-        chksum = tarfile.calc_chksums(buf[-tarfile.BLOCKSIZE:])[0]
+        chksum = tarfile.calc_chksums(buf[-tarfile.BLOCKSIZE :])[0]
 
         return buf[:-364] + bytes("%06o\0" % chksum, "ascii") + buf[-357:]
 
@@ -494,7 +555,7 @@ def chain_ids(ids_list: list) -> list[str]:
         return ids_list
 
     nxt = list()
-    chain_b = f'{ids_list[0]} {ids_list[1]}'.encode()
+    chain_b = f"{ids_list[0]} {ids_list[1]}".encode()
     nxt.append("sha256:" + hashlib.sha256(chain_b).hexdigest())
     nxt.extend(ids_list[2:])
 
@@ -504,7 +565,7 @@ def chain_ids(ids_list: list) -> list[str]:
 
 
 def layer_ids_list(chain_ids_list: list, config_image: dict) -> list[str]:
-    config_image.pop('id', '')
+    config_image.pop("id", "")
 
     chan_ids = []
     parent = None
@@ -523,14 +584,14 @@ def layer_ids_list(chain_ids_list: list, config_image: dict) -> list[str]:
 
 
 def date_parse(s: str) -> datetime.datetime:
-    layout = '%Y-%m-%dT%H:%M:%S.%f%z'
+    layout = "%Y-%m-%dT%H:%M:%S.%f%z"
 
     # remove Z at the end of the line
-    if s.endswith('Z'):
+    if s.endswith("Z"):
         s = s[:-1]
 
     nano_s = 0
-    datetime_parts = s.split('.')
+    datetime_parts = s.split(".")
     if len(datetime_parts) == 2:
         nano_s = datetime_parts[-1]
         # cut nanoseconds to microseconds
@@ -543,12 +604,12 @@ def date_parse(s: str) -> datetime.datetime:
 
 
 def www_auth(hdr: str) -> tuple[str, dict]:
-    auth_scheme, info = hdr.split(' ', 1)
+    auth_scheme, info = hdr.split(" ", 1)
 
     out = {}
-    for part in info.split(','):
-        k, v = part.split('=', 1)
-        out[k] = v.replace('"', '').strip()
+    for part in info.split(","):
+        k, v = part.split("=", 1)
+        out[k] = v.replace('"', "").strip()
 
     return auth_scheme, out
 
@@ -556,7 +617,7 @@ def www_auth(hdr: str) -> tuple[str, dict]:
 def sha256sum(name: str | Path, chunk_num_blocks: int = 128) -> str:
     h = hashlib.sha256()
 
-    with open(name, 'rb', buffering=0) as f:
+    with open(name, "rb", buffering=0) as f:
         while chunk := f.read(chunk_num_blocks * h.block_size):
             h.update(chunk)
 
@@ -564,33 +625,36 @@ def sha256sum(name: str | Path, chunk_num_blocks: int = 128) -> str:
 
 
 def sizeof_fmt(num: int) -> str:
-    for unit in ['B', 'KiB', 'MiB', 'GiB']:
-        if abs(num) < 1024.:
-            return f'{num:3.1f}{unit}'
-        num /= 1024.
+    for unit in ["B", "KiB", "MiB", "GiB"]:
+        if abs(num) < 1024.0:
+            return f"{num:3.1f}{unit}"
+        num /= 1024.0
 
-    return f'{num:3.2f}TiB'
+    return f"{num:3.2f}TiB"
 
 
 def image_platform(s: str) -> tuple[str, str]:
-    _os, arch = 'linux', os_platform.machine()
+    _os, arch = "linux", os_platform.machine()
     if s:
-        _os, arch = s.split('/')
+        _os, arch = s.split("/")
 
     return _os, arch
 
 
-def unzip(zip_file_path: str | Path,
-          out_file_path: str | Path,
-          remove_zip_file: bool = True,
-          progress: ProgressBar = EmptyProgressBar()):
-    with gzip.open(zip_file_path, 'rb') as zip_data, \
-            open(out_file_path, 'wb') as unzip_data:
+def unzip(
+    zip_file_path: str | Path,
+    out_file_path: str | Path,
+    remove_zip_file: bool = True,
+    progress: ProgressBar = EmptyProgressBar(),
+):
+    with gzip.open(zip_file_path, "rb") as zip_data, open(
+        out_file_path, "wb"
+    ) as unzip_data:
         zip_data.myfileobj.seek(-4, 2)
         size_bytes = zip_data.myfileobj.read(4)
         zip_data.myfileobj.seek(0)
 
-        progress.set_size(struct.unpack('I', size_bytes)[0])
+        progress.set_size(struct.unpack("I", size_bytes)[0])
 
         done = 0
         while chunk := zip_data.read(131072):
@@ -604,7 +668,7 @@ def unzip(zip_file_path: str | Path,
 
 
 def make_tar(out_path: Path, path: Path, created: float):
-    tar = tarfile.open(out_path, 'w')
+    tar = tarfile.open(out_path, "w")
     tar.tarinfo = TarInfo
     tar.format = tarfile.USTAR_FORMAT
     tarfile.RECORDSIZE = 512
@@ -612,10 +676,10 @@ def make_tar(out_path: Path, path: Path, created: float):
     def mod(t: tarfile.TarInfo):
         t.uid = 0
         t.gid = 0
-        t.uname = ''
-        t.gname = ''
+        t.uname = ""
+        t.gname = ""
 
-        if t.name in ['manifest.json', 'repositories']:
+        if t.name in ["manifest.json", "repositories"]:
             t.mtime = 0
         else:
             t.mtime = created
@@ -633,9 +697,9 @@ def make_tar(out_path: Path, path: Path, created: float):
 
 
 class ImageParser:
-    REGISTRY_HOST = 'registry-1.docker.io'
-    REGISTRY_IMAGE_PREFIX = 'library'
-    DEFAULT_IMAGE_TAG = 'latest'
+    REGISTRY_HOST = "registry-1.docker.io"
+    REGISTRY_IMAGE_PREFIX = "library"
+    DEFAULT_IMAGE_TAG = "latest"
 
     def __init__(self, image: str):
         self._registry = None
@@ -647,25 +711,25 @@ class ImageParser:
         self._from_string(image)
 
     def __str__(self):
-        return f'{self.registry}/{self.image}:{self.image_digest or self.tag}'
+        return f"{self.registry}/{self.image}:{self.image_digest or self.tag}"
 
     def _from_string(self, image: str):
         registry = self.REGISTRY_HOST
         tag = self.DEFAULT_IMAGE_TAG
 
-        idx = image.find('/')
-        if idx > -1 and ('.' in image[:idx] or ':' in image[:idx]):
+        idx = image.find("/")
+        if idx > -1 and ("." in image[:idx] or ":" in image[:idx]):
             registry = image[:idx]
-            image = image[idx + 1:]
+            image = image[idx + 1 :]
 
-        idx = image.find('@')
+        idx = image.find("@")
         if idx > -1:
-            self._manifest_digest = tag = image[idx + 1:]
+            self._manifest_digest = tag = image[idx + 1 :]
             image = image[:idx]
 
-        idx = image.find(':')
+        idx = image.find(":")
         if idx > -1:
-            tag = image[idx + 1:]
+            tag = image[idx + 1 :]
             image = image[:idx]
 
         self._registry = registry
@@ -675,22 +739,22 @@ class ImageParser:
 
     def _url(self, typ: str, tag: str):
         img = self.image
-        idx = img.find('/')
+        idx = img.find("/")
         if idx == -1 and self.registry == self.REGISTRY_HOST:
             img = path_join(self.REGISTRY_IMAGE_PREFIX, img)
 
-        return f'{self._registry}/v2/{img}/{typ}/{tag}'
+        return f"{self._registry}/v2/{img}/{typ}/{tag}"
 
     @property
     def url_manifests(self):
-        return self._url('manifests', self._manifest_digest or self._tag)
+        return self._url("manifests", self._manifest_digest or self._tag)
 
     @property
     def url_config_image(self):
         return self.url_blobs(self._digest or self._tag)
 
     def url_blobs(self, layer_digest: str):
-        return self._url('blobs', layer_digest)
+        return self._url("blobs", layer_digest)
 
     @property
     def image_digest(self):
@@ -720,21 +784,29 @@ class ImageParser:
 
 
 class ImageFetcher:
-    __LST_MTYPE = 'application/vnd.docker.distribution.manifest.list.v2+json'
+    __LST_MTYPE = "application/vnd.docker.distribution.manifest.list.v2+json"
 
-    def __init__(self,
-                 work_dir: Path, *,
-                 progress: ProgressBar = EmptyProgressBar(),
-                 save_cache: bool = False):
+    def __init__(
+        self,
+        work_dir: Path,
+        *,
+        progress: ProgressBar = EmptyProgressBar(),
+        save_cache: bool = False,
+    ):
 
         self.__registry_list: dict[str, Registry] = {}
         self._fsm = FilesManager(work_dir)
         self._save_cache = save_cache
         self.__progress_bar = progress
 
-    def set_registry(self, registry: str, user: str = None,
-                     password: str = None, ssl: bool = True):
-        registry = registry.lstrip('https://').lstrip('http://')
+    def set_registry(
+        self,
+        registry: str,
+        user: str = None,
+        password: str = None,
+        ssl: bool = True,
+    ):
+        registry = registry.lstrip("https://").lstrip("http://")
 
         creds = requests.auth.HTTPBasicAuth(user, password) if user else None
         self.__registry_list[registry] = Registry(creds, ssl)
@@ -747,14 +819,15 @@ class ImageFetcher:
         saver = self._fsm(dir_name)
 
         # get image manifest
-        image_manifest_resp = registry.get(img.url_manifests,
-                                           headers={'Accept': media_type})
+        image_manifest_resp = registry.get(
+            img.url_manifests, headers={"Accept": media_type}
+        )
         image_manifest_spec = image_manifest_resp.json()
 
-        if image_manifest_spec['schemaVersion'] == 1:
+        if image_manifest_spec["schemaVersion"] == 1:
             raise ValueError("schema version 1 image manifest not supported")
 
-        img.set_image_digest(image_manifest_spec['config']['digest'])
+        img.set_image_digest(image_manifest_spec["config"]["digest"])
 
         # get image config
         image_config_resp = registry.get(img.url_config_image)
@@ -762,52 +835,56 @@ class ImageFetcher:
 
         # save image config
         image_digest_hash = img.image_digest.split(":")[1]
-        image_config_filename = f'{image_digest_hash}.json'
+        image_config_filename = f"{image_digest_hash}.json"
         saver.write(image_config_filename, image_config_resp.content)
 
         image_manifest = Manifest(Config=image_config_filename)
         if img.tag:
-            image_manifest.RepoTags.append(f'{img.image}:{img.tag}')
+            image_manifest.RepoTags.append(f"{img.image}:{img.tag}")
         else:
             image_manifest.RepoTags = None
 
         # fetch all layers with metadata
-        diff_ids = image_config['rootfs']['diff_ids']
+        diff_ids = image_config["rootfs"]["diff_ids"]
         chain_ids_list = chain_ids(diff_ids)
         v1_layer_ids_list = layer_ids_list(chain_ids_list, image_config)
 
         v1_layer_id = None
         parent_id = None
         previous_digest = None
-        layers = image_manifest_spec['layers']
+        layers = image_manifest_spec["layers"]
         for i, layer_info in enumerate(layers):
             v1_layer_id = v1_layer_ids_list[i][7:]
-            image_manifest.Layers.append(f'{v1_layer_id}/layer.tar')
+            image_manifest.Layers.append(f"{v1_layer_id}/layer.tar")
 
             v1_layer_info = V1Image(
                 id=v1_layer_id,
                 parent=parent_id,
-                os=image_config['os'],
-                container_config=ContainerConfig()
+                os=image_config["os"],
+                container_config=ContainerConfig(),
             )
 
             if layer_info == layers[-1]:
                 v1_layer_info.config = ContainerConfig()
                 v1_layer_info.deepcopy(image_config)
 
-            digest = layer_info['digest']
+            digest = layer_info["digest"]
             with saver(v1_layer_id) as fw:
                 if previous_digest == digest:
                     # `docker save` command is not deterministic https://github.com/moby/moby/issues/42766#issuecomment-1801221610
-                    os.symlink(f'../{parent_id}/layer.tar', fw.filepath('layer.tar'))
+                    os.symlink(
+                        f"../{parent_id}/layer.tar", fw.filepath("layer.tar")
+                    )
                 else:
-                    registry.fetch_blob(img.url_blobs(digest),
-                                        fw.filepath('layer.tar'),
-                                        headers={'Accept': layer_info['mediaType']},
-                                        progress=self.__progress_bar)
+                    registry.fetch_blob(
+                        img.url_blobs(digest),
+                        fw.filepath("layer.tar"),
+                        headers={"Accept": layer_info["mediaType"]},
+                        progress=self.__progress_bar,
+                    )
 
-                fw.write('json', v1_layer_info.json)
-                fw.write('VERSION', '1.0')
+                fw.write("json", v1_layer_info.json)
+                fw.write("VERSION", "1.0")
 
             previous_digest = digest
             parent_id = v1_layer_id
@@ -817,17 +894,17 @@ class ImageFetcher:
             # docker didn't create this file when pulling image by digest,
             # but podman created ¯\_(ツ)_/¯
             repos_legacy = {img.image: {img.tag: v1_layer_id}}
-            data = json.dumps(repos_legacy, separators=JSON_SEPARATOR) + '\n'
+            data = json.dumps(repos_legacy, separators=JSON_SEPARATOR) + "\n"
 
-            saver.write('repositories', data)
+            saver.write("repositories", data)
 
         images_manifest_list = ManifestList()
         images_manifest_list.manifests.append(image_manifest)
-        saver.write("manifest.json", images_manifest_list.json + '\n')
+        saver.write("manifest.json", images_manifest_list.json + "\n")
 
         # Save layers with metadata to tar file
-        filename = str(self._fsm.work_dir.joinpath(dir_name)) + '.tar'
-        created = date_parse(image_config['created']).timestamp()
+        filename = str(self._fsm.work_dir.joinpath(dir_name)) + ".tar"
+        created = date_parse(image_config["created"]).timestamp()
 
         make_tar(Path(filename), saver.work_dir, created)
         os.chmod(filename, 0o600)
@@ -838,36 +915,38 @@ class ImageFetcher:
         img = ImageParser(image)
         registry = self._get_registry(img.registry)
 
-        print(f'{img.tag}: Pulling from {img.image}')
+        print(f"{img.tag}: Pulling from {img.image}")
         # get manifest list
-        headers = {'Accept': self.__LST_MTYPE}
+        headers = {"Accept": self.__LST_MTYPE}
         manifest_list_resp = registry.get(img.url_manifests, headers=headers)
         manifest_list = manifest_list_resp.json()
 
         if not img.manifest_digest:
             for mfst in self._manifests(manifest_list, platform):
-                img.set_manifest_digest(mfst['digest'])
-                img_name_n = img.image.replace('/', '_')
-                img_tag_n = img.tag.replace(':', '_')
-                plf = mfst['platform']
-                arch = plf['architecture']
+                img.set_manifest_digest(mfst["digest"])
+                img_name_n = img.image.replace("/", "_")
+                img_tag_n = img.tag.replace(":", "_")
+                plf = mfst["platform"]
+                arch = plf["architecture"]
                 dir_name = f"{img_name_n}_{img_tag_n}_{plf['os']}_{arch}"
 
-                self._fetch_image(img, mfst['mediaType'], dir_name)
+                self._fetch_image(img, mfst["mediaType"], dir_name)
         else:
-            img_name_n = img.image.replace('/', '_')
-            img_tag_n = img.manifest_digest.replace(':', '_').replace('@', '_')
+            img_name_n = img.image.replace("/", "_")
+            img_tag_n = img.manifest_digest.replace(":", "_").replace(
+                "@", "_"
+            )
             img_os, img_arch = image_platform(platform)
             dir_name = f"{img_name_n}_{img_tag_n}_{img_os}_{img_arch}"
 
-            self._fetch_image(img, manifest_list['mediaType'], dir_name)
+            self._fetch_image(img, manifest_list["mediaType"], dir_name)
 
-        print('Digest:', img.image_digest, "\n")
+        print("Digest:", img.image_digest, "\n")
 
     def _manifests(self, manifest_list: dict, platform: str) -> list:
         img_os, img_arch = image_platform(platform)
-        manifests = manifest_list.get('manifests', [])
-        if manifest_list.get('schemaVersion') == 1:
+        manifests = manifest_list.get("manifests", [])
+        if manifest_list.get("schemaVersion") == 1:
             raise ValueError("schema version 1 image manifest not supported")
 
         if not img_os and not img_arch:
@@ -875,49 +954,62 @@ class ImageFetcher:
 
         out = []
         for mfst in manifests:
-            plf = mfst['platform']
+            plf = mfst["platform"]
 
             if img_os and img_arch:
-                if plf['os'] == img_os and plf['architecture'] == img_arch:
+                if plf["os"] == img_os and plf["architecture"] == img_arch:
                     out.append(mfst)
                     break
             else:
-                if plf['os'] == img_os or plf['architecture'] == img_arch:
+                if plf["os"] == img_os or plf["architecture"] == img_arch:
                     out.append(mfst)
 
         return out
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        prog='docker_pull.py',
+        prog="docker_pull.py",
         formatter_class=lambda prog: argparse.HelpFormatter(
-            prog,
-            max_help_position=36,
-            width=120
-        ))
+            prog, max_help_position=36, width=120
+        ),
+    )
 
-    parser.add_argument('images', nargs='+')
+    parser.add_argument("images", nargs="+")
 
-    parser.add_argument('--output', '-o', default="output", type=Path,
-                        help="Output dir")
-    parser.add_argument('--save-cache', action='store_true',
-                        help="Do not delete the temp folder")
-    parser.add_argument('--registry', '-r', type=str, help="Registry")
-    parser.add_argument('--user', '-u', type=str, help="Registry login")
-    parser.add_argument('--platform', type=str, default='linux/amd64',
-                        help="Set platform for downloaded image")
+    parser.add_argument(
+        "--output", "-o", default="output", type=Path, help="Output dir"
+    )
+    parser.add_argument(
+        "--save-cache",
+        action="store_true",
+        help="Do not delete the temp folder",
+    )
+    parser.add_argument("--registry", "-r", type=str, help="Registry")
+    parser.add_argument("--user", "-u", type=str, help="Registry login")
+    parser.add_argument(
+        "--platform",
+        type=str,
+        default="linux/amd64",
+        help="Set platform for downloaded image",
+    )
 
     verbose_grp = parser.add_mutually_exclusive_group()
-    verbose_grp.add_argument('--silent', '-s', action='store_true',
-                             help="Silent mode")
-    verbose_grp.add_argument('--verbose', '-v', action='store_true',
-                             help="Enable debug output")
+    verbose_grp.add_argument(
+        "--silent", "-s", action="store_true", help="Silent mode"
+    )
+    verbose_grp.add_argument(
+        "--verbose", "-v", action="store_true", help="Enable debug output"
+    )
 
     grp = parser.add_mutually_exclusive_group()
-    grp.add_argument('--password', '-p', type=str, help="Registry password")
-    grp.add_argument('--stdin-password', '-P', action='store_true',
-                     help="Registry password (interactive)")
+    grp.add_argument("--password", "-p", type=str, help="Registry password")
+    grp.add_argument(
+        "--stdin-password",
+        "-P",
+        action="store_true",
+        help="Registry password (interactive)",
+    )
     parsed_args = parser.parse_args()
 
     if parsed_args.verbose:
@@ -931,7 +1023,7 @@ if __name__ == '__main__':
     puller = ImageFetcher(
         parsed_args.output,
         progress=_progress,
-        save_cache=parsed_args.save_cache
+        save_cache=parsed_args.save_cache,
     )
 
     if parsed_args.user:
@@ -946,7 +1038,7 @@ if __name__ == '__main__':
         puller.set_registry(
             parsed_args.registry or ImageParser.REGISTRY_HOST,
             parsed_args.user,
-            _password
+            _password,
         )
 
     for _image in parsed_args.images:
