@@ -207,6 +207,9 @@ class LayerConfig(StructClasses):
     parent: str = dataclasses.field(
         default=None, metadata={"omitempty": True}
     )
+    variant: str = dataclasses.field(
+        default=None, metadata={"omitempty": True}
+    )
 
 
 @dataclasses.dataclass
