@@ -1,3 +1,5 @@
+Starting from version 25, docker saves images in oci format
+
 # docker_pull
 The script makes it possible to download a docker-image without docker
 
