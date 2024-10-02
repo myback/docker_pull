@@ -787,7 +787,10 @@ class ImageParser:
 
 
 class ImageFetcher:
+    __IMG_MANIFEST_FORMAT = "application/vnd.docker.distribution.manifest.v2+json"
     __LST_MTYPE = "application/vnd.docker.distribution.manifest.list.v2+json"
+    __OCI_IMAGE_MANIFEST_FORMAT = "application/vnd.oci.image.manifest.v1+json"
+    __OCI_IMAGE_INDEX_FORMAT = "application/vnd.oci.image.index.v1+json"
 
     def __init__(
         self,
@@ -921,19 +924,16 @@ class ImageFetcher:
         print(f"{img.tag}: Pulling from {img.image}")
         # get manifest list
         headers = {"Accept": self.__LST_MTYPE}
-        manifest_list_resp = registry.get(img.url_manifests, headers=headers)
-        manifest_list = manifest_list_resp.json()
+        manifest_resp = registry.get(img.url_manifests, headers=headers)
+        manifest = manifest_resp.json()
 
         if not img.manifest_digest:
-            for mfst in self._manifests(manifest_list, platform):
-                img.set_manifest_digest(mfst["digest"])
-                img_name_n = img.image.replace("/", "_")
-                img_tag_n = img.tag.replace(":", "_")
-                plf = mfst["platform"]
-                arch = plf["architecture"]
-                dir_name = f"{img_name_n}_{img_tag_n}_{plf['os']}_{arch}"
-
-                self._fetch_image(img, mfst["mediaType"], dir_name)
+            if manifest["mediaType"] == self.__IMG_MANIFEST_FORMAT or \
+                    manifest["mediaType"] == self.__OCI_IMAGE_MANIFEST_FORMAT:
+                self._pull_from_manifest(img, manifest)
+            elif manifest["mediaType"] == self.__LST_MTYPE or \
+                    manifest["mediaType"] == self.__OCI_IMAGE_INDEX_FORMAT:
+                self._pull_from_mainfest_list(img, manifest, platform)
         else:
             img_name_n = img.image.replace("/", "_")
             img_tag_n = img.manifest_digest.replace(":", "_").replace(
@@ -942,7 +942,7 @@ class ImageFetcher:
             img_os, img_arch = image_platform(platform)
             dir_name = f"{img_name_n}_{img_tag_n}_{img_os}_{img_arch}"
 
-            self._fetch_image(img, manifest_list["mediaType"], dir_name)
+            self._fetch_image(img, manifest["mediaType"], dir_name)
 
         print("Digest:", img.image_digest, "\n")
 
@@ -968,6 +968,25 @@ class ImageFetcher:
                     out.append(mfst)
 
         return out
+    
+    def _pull_from_manifest(self, img: ImageParser, manifest: dict):
+        img_name_n = img.image.replace("/", "_")
+        img_tag_n = img.tag.replace(":", "_")
+        dir_name = f"{img_name_n}_{img_tag_n}"
+
+        self._fetch_image(img, manifest["mediaType"], dir_name)
+
+
+    def _pull_from_mainfest_list(self, img: ImageParser, manifest: dict, platform: str):
+        for mfst in self._manifests(manifest, platform):
+            img.set_manifest_digest(mfst["digest"])
+            img_name_n = img.image.replace("/", "_")
+            img_tag_n = img.tag.replace(":", "_")
+            plf = mfst["platform"]
+            arch = plf["architecture"]
+            dir_name = f"{img_name_n}_{img_tag_n}_{plf['os']}_{arch}"
+
+            self._fetch_image(img, mfst["mediaType"], dir_name)
 
 
 if __name__ == "__main__":
