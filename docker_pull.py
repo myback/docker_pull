@@ -928,11 +928,9 @@ class ImageFetcher:
         manifest = manifest_resp.json()
 
         if not img.manifest_digest:
-            if manifest["mediaType"] == self.__IMG_MANIFEST_FORMAT or \
-                    manifest["mediaType"] == self.__OCI_IMAGE_MANIFEST_FORMAT:
+            if manifest["mediaType"] in [self.__IMG_MANIFEST_FORMAT, self.__OCI_IMAGE_MANIFEST_FORMAT]:
                 self._pull_from_manifest(img, manifest)
-            elif manifest["mediaType"] == self.__LST_MTYPE or \
-                    manifest["mediaType"] == self.__OCI_IMAGE_INDEX_FORMAT:
+            elif manifest["mediaType"] in [self.__LST_MTYPE, self.__OCI_IMAGE_INDEX_FORMAT]:
                 self._pull_from_mainfest_list(img, manifest, platform)
         else:
             img_name_n = img.image.replace("/", "_")
