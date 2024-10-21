@@ -1,4 +1,4 @@
-Starting from version 25, docker saves images in oci format
+# Starting from version 25, docker saves images in oci format. In this case it is preferable to use [Skopeo](https://github.com/containers/skopeo)
 
 # docker_pull
 The script makes it possible to download a docker-image without docker

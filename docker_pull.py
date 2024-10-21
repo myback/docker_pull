@@ -22,6 +22,12 @@ import requests
 import requests.auth
 
 JSON_SEPARATOR = (",", ":")
+DOCKER_MANIFEST = "application/vnd.docker.distribution.manifest.v2+json"
+DOCKER_MANIFEST_LIST = (
+    "application/vnd.docker.distribution.manifest.list.v2+json"
+)
+OCI_IMAGE_MANIFEST = "application/vnd.oci.image.manifest.v1+json"
+OCI_IMAGE_INDEX = "application/vnd.oci.image.index.v1+json"
 
 
 # based on json.decoder.py_scanstring
@@ -508,7 +514,7 @@ class Registry:
         progress.set_size(int(r.headers.get("Content-Length", 0)))
 
         with open(temp_file, mode) as f:
-            for chunk in r.iter_content(chunk_size=131072):
+            for chunk in r.iter_content(chunk_size=5242880):
                 if chunk:
                     f.write(chunk)
                     done += len(chunk)
@@ -787,11 +793,6 @@ class ImageParser:
 
 
 class ImageFetcher:
-    __IMG_MANIFEST_FORMAT = "application/vnd.docker.distribution.manifest.v2+json"
-    __LST_MTYPE = "application/vnd.docker.distribution.manifest.list.v2+json"
-    __OCI_IMAGE_MANIFEST_FORMAT = "application/vnd.oci.image.manifest.v1+json"
-    __OCI_IMAGE_INDEX_FORMAT = "application/vnd.oci.image.index.v1+json"
-
     def __init__(
         self,
         work_dir: Path,
@@ -897,8 +898,7 @@ class ImageFetcher:
 
         if img.tag:
             # https://github.com/moby/moby/issues/45440
-            # docker didn't create this file when pulling image by digest,
-            # but podman created ¯\_(ツ)_/¯
+            # docker didn't create this file when pulling image by digest
             repos_legacy = {img.image: {img.tag: v1_layer_id}}
             data = json.dumps(repos_legacy, separators=JSON_SEPARATOR) + "\n"
 
@@ -923,50 +923,32 @@ class ImageFetcher:
 
         print(f"{img.tag}: Pulling from {img.image}")
         # get manifest list
-        headers = {"Accept": self.__LST_MTYPE}
+        headers = {"Accept": DOCKER_MANIFEST_LIST}
         manifest_resp = registry.get(img.url_manifests, headers=headers)
         manifest = manifest_resp.json()
 
         if not img.manifest_digest:
-            if manifest["mediaType"] in [self.__IMG_MANIFEST_FORMAT, self.__OCI_IMAGE_MANIFEST_FORMAT]:
+            mt = manifest["mediaType"]
+            if mt in [DOCKER_MANIFEST, OCI_IMAGE_MANIFEST]:
                 self._pull_from_manifest(img, manifest)
-            elif manifest["mediaType"] in [self.__LST_MTYPE, self.__OCI_IMAGE_INDEX_FORMAT]:
-                self._pull_from_mainfest_list(img, manifest, platform)
+            elif mt in [DOCKER_MANIFEST_LIST, OCI_IMAGE_INDEX]:
+                self._pull_from_manifest_list(img, manifest, platform)
+            else:
+                raise ValueError(
+                    f'manifest mediaType "{mt}" is not supported'
+                )
         else:
-            img_name_n = img.image.replace("/", "_")
-            img_tag_n = img.manifest_digest.replace(":", "_").replace(
+            img_name = img.image.replace("/", "_")
+            img_tag = img.manifest_digest.replace(":", "_").replace(
                 "@", "_"
             )
             img_os, img_arch = image_platform(platform)
-            dir_name = f"{img_name_n}_{img_tag_n}_{img_os}_{img_arch}"
+            dir_name = f"{img_name}_{img_tag}_{img_os}_{img_arch}"
 
             self._fetch_image(img, manifest["mediaType"], dir_name)
 
         print("Digest:", img.image_digest, "\n")
 
-    def _manifests(self, manifest_list: dict, platform: str) -> list:
-        img_os, img_arch = image_platform(platform)
-        manifests = manifest_list.get("manifests", [])
-        if manifest_list.get("schemaVersion") == 1:
-            raise ValueError("schema version 1 image manifest not supported")
-
-        if not img_os and not img_arch:
-            return manifests
-
-        out = []
-        for mfst in manifests:
-            plf = mfst["platform"]
-
-            if img_os and img_arch:
-                if plf["os"] == img_os and plf["architecture"] == img_arch:
-                    out.append(mfst)
-                    break
-            else:
-                if plf["os"] == img_os or plf["architecture"] == img_arch:
-                    out.append(mfst)
-
-        return out
-    
     def _pull_from_manifest(self, img: ImageParser, manifest: dict):
         img_name_n = img.image.replace("/", "_")
         img_tag_n = img.tag.replace(":", "_")
@@ -974,17 +956,35 @@ class ImageFetcher:
 
         self._fetch_image(img, manifest["mediaType"], dir_name)
 
-
-    def _pull_from_mainfest_list(self, img: ImageParser, manifest: dict, platform: str):
-        for mfst in self._manifests(manifest, platform):
+    def _pull_from_manifest_list(
+        self, img: ImageParser, manifest: dict, platform: str
+    ):
+        for mfst in _filter_manifests(manifest, platform):
             img.set_manifest_digest(mfst["digest"])
-            img_name_n = img.image.replace("/", "_")
-            img_tag_n = img.tag.replace(":", "_")
-            plf = mfst["platform"]
-            arch = plf["architecture"]
-            dir_name = f"{img_name_n}_{img_tag_n}_{plf['os']}_{arch}"
+            img_name = img.image.replace("/", "_")
+            img_tag = img.tag.replace(":", "_")
+            p = mfst["platform"]
+            arch = p["architecture"]
+            dir_name = f"{img_name}_{img_tag}_{p['os']}_{arch}"
 
             self._fetch_image(img, mfst["mediaType"], dir_name)
+
+
+def _filter_manifests(manifest_list: dict, platform: str) -> list:
+    if manifest_list.get("schemaVersion") == 1:
+        raise ValueError("schema version 1 image manifest not supported")
+
+    manifests = manifest_list.get("manifests", [])
+    if not manifests or platform == "all":
+        return manifests
+
+    img_os, img_arch = image_platform(platform)
+    for mfst in manifests:
+        p = mfst["platform"]
+        if p["os"] == img_os and p["architecture"] == img_arch:
+            return [mfst]
+
+    return []
 
 
 if __name__ == "__main__":
@@ -1011,7 +1011,7 @@ if __name__ == "__main__":
         "--platform",
         type=str,
         default="linux/amd64",
-        help="Set platform for downloaded image",
+        help='Set platform for downloaded image. Set "all" to download all images',
     )
 
     verbose_grp = parser.add_mutually_exclusive_group()
